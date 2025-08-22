@@ -1,0 +1,583 @@
+name: PR Automation
+
+on:
+  pull_request:
+    types: [opened, edited, labeled, unlabeled, synchronize]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  pr-auto-label:
+    name: Auto-label Pull Requests
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened' || github.event.action == 'edited'
+    
+    steps:
+      - name: Add labels based on PR content
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const title = pr.title.toLowerCase();
+            const body = pr.body ? pr.body.toLowerCase() : '';
+            const labels = [];
+            
+            // Detect template type
+            if (body.includes('emergency hotfix') || title.includes('hotfix') || title.includes('emergency')) {
+              labels.push('hotfix', 'emergency', 'priority: critical');
+            } else if (body.includes('simple template') || body.includes('minor changes')) {
+              labels.push('minor', 'low-priority');
+            } else {
+              // Default template
+              labels.push('needs-review');
+            }
+            
+            // Auto-label based on title patterns
+            if (title.includes('feat:') || title.includes('feature:') || title.includes('✨')) {
+              labels.push('enhancement');
+            }
+            if (title.includes('fix:') || title.includes('bug:') || title.includes('🐛')) {
+              labels.push('bug');
+            }
+            if (title.includes('docs:') || title.includes('documentation') || title.includes('📚')) {
+              labels.push('documentation');
+            }
+            if (title.includes('perf:') || title.includes('performance') || title.includes('⚡')) {
+              labels.push('performance');
+            }
+            if (title.includes('security:') || title.includes('🔒')) {
+              labels.push('security');
+            }
+            if (title.includes('ci:') || title.includes('github actions') || title.includes('🔧')) {
+              labels.push('github-actions', 'ci-cd');
+            }
+            
+            // Component detection from content
+            if (body.includes('webflow') || body.includes('frontend') || body.includes('ui')) {
+              labels.push('webflow', 'frontend');
+            }
+            if (body.includes('xano') || body.includes('backend') || body.includes('api')) {
+              labels.push('xano', 'backend');
+            }
+            if (body.includes('database') || body.includes('migration')) {
+              labels.push('database');
+            }
+            if (body.includes('authentication') || body.includes('auth')) {
+              labels.push('authentication');
+            }
+            
+            // Breaking changes detection
+            if (body.includes('breaking change') || body.includes('💥')) {
+              labels.push('breaking-change');
+            }
+            
+            // Environment detection
+            if (body.includes('production') && body.includes('affects')) {
+              labels.push('env: production');
+            }
+            if (body.includes('staging')) {
+              labels.push('env: staging');
+            }
+            
+            // Size estimation
+            const changedFiles = pr.changed_files || 0;
+            const additions = pr.additions || 0;
+            const deletions = pr.deletions || 0;
+            const totalChanges = additions + deletions;
+            
+            if (totalChanges < 10 && changedFiles <= 2) {
+              labels.push('effort: xs');
+            } else if (totalChanges < 50 && changedFiles <= 5) {
+              labels.push('effort: small');
+            } else if (totalChanges < 200 && changedFiles <= 15) {
+              labels.push('effort: medium');
+            } else if (totalChanges < 500) {
+              labels.push('effort: large');
+            } else {
+              labels.push('effort: xl');
+            }
+            
+            // Apply labels if any were identified
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: [...new Set(labels)] // Remove duplicates
+              });
+              
+              console.log(`Added labels: ${labels.join(', ')}`);
+            }
+
+  pr-template-validation:
+    name: Validate PR Template Completion
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened' || github.event.action == 'edited'
+    
+    steps:
+      - name: Check template completion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const title = pr.title;
+            
+            const issues = [];
+            const warnings = [];
+            
+            // Check for template placeholders
+            const placeholders = [
+              '<!-- issue number -->',
+              '<!-- Provide a clear and concise description -->',
+              '<!-- Explain the problem this PR solves -->',
+              '<!-- Describe the approach you took -->',
+              '<!-- specify -->',
+              '<!-- Date -->',
+              '___ minutes'
+            ];
+            
+            placeholders.forEach(placeholder => {
+              if (body.includes(placeholder)) {
+                issues.push(`Template placeholder not replaced: "${placeholder}"`);
+              }
+            });
+            
+            // Check for required sections based on template type
+            const isHotfix = body.includes('EMERGENCY HOTFIX') || title.toLowerCase().includes('hotfix');
+            const isSimple = body.includes('Simple Pull Request Template') || body.length < 500;
+            
+            if (!isSimple && !isHotfix) {
+              // Default template checks
+              if (!body.includes('## 📝 Description')) {
+                issues.push('Missing description section');
+              }
+              if (!body.includes('## 🧪 Testing Checklist')) {
+                warnings.push('Testing checklist section not found');
+              }
+              if (!body.includes('## 🚀 Deployment Checklist')) {
+                warnings.push('Deployment checklist section not found');
+              }
+            }
+            
+            // Check for issue links
+            const issuePattern = /#\d+/g;
+            const hasIssueLinks = issuePattern.test(body);
+            if (!hasIssueLinks && !isHotfix) {
+              warnings.push('No related issues linked - consider linking to related issues');
+            }
+            
+            // Check title format
+            const conventionalCommitPattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+/;
+            if (!conventionalCommitPattern.test(title)) {
+              warnings.push('Title does not follow conventional commit format (feat:, fix:, docs:, etc.)');
+            }
+            
+            // Post validation results
+            if (issues.length > 0 || warnings.length > 0) {
+              let comment = '## 🔍 PR Template Validation\n\n';
+              
+              if (issues.length > 0) {
+                comment += '### ❌ Issues Found:\n';
+                issues.forEach(issue => {
+                  comment += `- ${issue}\n`;
+                });
+                comment += '\n';
+              }
+              
+              if (warnings.length > 0) {
+                comment += '### ⚠️ Suggestions:\n';
+                warnings.forEach(warning => {
+                  comment += `- ${warning}\n`;
+                });
+                comment += '\n';
+              }
+              
+              if (issues.length > 0) {
+                comment += '**Please address the issues above before requesting review.**\n\n';
+              }
+              
+              comment += '---\n*This validation was automatically generated. You can update your PR description to address these items.*';
+              
+              // Check if validation comment already exists
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number
+              });
+              
+              const existingValidation = comments.find(comment => 
+                comment.body.includes('PR Template Validation') && 
+                comment.user.type === 'Bot'
+              );
+              
+              if (existingValidation) {
+                // Update existing comment
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingValidation.id,
+                  body: comment
+                });
+              } else {
+                // Create new comment
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: comment
+                });
+              }
+              
+              // Add label for incomplete template if issues found
+              if (issues.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  labels: ['incomplete-template']
+                });
+              }
+            }
+
+  hotfix-pr-notification:
+    name: Hotfix PR Notification
+    runs-on: ubuntu-latest
+    if: |
+      github.event.action == 'opened' && 
+      (contains(github.event.pull_request.title, 'hotfix') || 
+       contains(github.event.pull_request.title, 'EMERGENCY') ||
+       contains(github.event.pull_request.body, 'EMERGENCY HOTFIX'))
+    
+    steps:
+      - name: Create hotfix notification
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            const hotfixComment = `
+            ## 🚨 HOTFIX PULL REQUEST DETECTED 🚨
+            
+            This PR has been identified as an emergency hotfix requiring expedited review.
+            
+            **⚡ Immediate Actions Triggered:**
+            - Labeled as \`hotfix\`, \`emergency\`, and \`priority: critical\`
+            - Added to emergency review queue
+            - Stakeholders will be notified
+            
+            **🎯 Review SLA:** 30 minutes - 2 hours
+            **👥 Required Reviewers:** Emergency on-call team
+            
+            **📋 Emergency Review Checklist:**
+            - [ ] **Fix Verification**: Does this address the critical issue?
+            - [ ] **Risk Assessment**: Are the risks acceptable for emergency deployment?
+            - [ ] **Rollback Plan**: Is the rollback plan viable and tested?
+            - [ ] **Scope**: Is this the minimal change needed to resolve the issue?
+            
+            **⚠️ For Reviewers:**
+            - Focus on impact and risk over perfect code style
+            - Verify this meets emergency criteria
+            - Ensure rollback plan is solid
+            - Confirm fix addresses root cause
+            
+            **📞 Emergency Contacts:**
+            - Check PR description for primary contact information
+            - Use emergency communication channels for urgent questions
+            
+            ---
+            
+            *This is an automated emergency notification. The team has been alerted via emergency channels.*
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: hotfixComment
+            });
+            
+            // Add emergency labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['hotfix', 'emergency', 'priority: critical', 'needs-immediate-review']
+            });
+
+  pr-size-analysis:
+    name: PR Size Analysis
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened' || github.event.action == 'synchronize'
+    
+    steps:
+      - name: Analyze PR size and complexity
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const changedFiles = pr.changed_files;
+            const additions = pr.additions;
+            const deletions = pr.deletions;
+            const totalChanges = additions + deletions;
+            
+            let sizeComment = '## 📊 PR Size Analysis\n\n';
+            let riskLevel = 'Low';
+            let reviewGuidance = '';
+            
+            // Size analysis
+            if (totalChanges < 10) {
+              sizeComment += '✅ **Size: Extra Small** (< 10 lines changed)\n';
+              reviewGuidance = 'Quick review expected - focus on correctness and style.';
+            } else if (totalChanges < 50) {
+              sizeComment += '✅ **Size: Small** (10-49 lines changed)\n';
+              reviewGuidance = 'Standard review - should be straightforward to review.';
+            } else if (totalChanges < 200) {
+              sizeComment += '🟡 **Size: Medium** (50-199 lines changed)\n';
+              reviewGuidance = 'Moderate review time needed - consider breaking down future changes.';
+              riskLevel = 'Medium';
+            } else if (totalChanges < 500) {
+              sizeComment += '🟠 **Size: Large** (200-499 lines changed)\n';
+              reviewGuidance = 'Significant review time required - consider splitting this PR.';
+              riskLevel = 'High';
+            } else {
+              sizeComment += '🔴 **Size: Extra Large** (500+ lines changed)\n';
+              reviewGuidance = '⚠️ Very large PR - strongly consider splitting into smaller PRs.';
+              riskLevel = 'Very High';
+            }
+            
+            sizeComment += `**Files Changed:** ${changedFiles}\n`;
+            sizeComment += `**Lines Added:** ${additions}\n`;
+            sizeComment += `**Lines Deleted:** ${deletions}\n`;
+            sizeComment += `**Risk Level:** ${riskLevel}\n\n`;
+            
+            // File type analysis
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+            
+            const fileTypes = {};
+            const riskFiles = [];
+            
+            files.forEach(file => {
+              const extension = file.filename.split('.').pop().toLowerCase();
+              fileTypes[extension] = (fileTypes[extension] || 0) + 1;
+              
+              // Identify high-risk files
+              if (file.filename.includes('package.json') || 
+                  file.filename.includes('package-lock.json') ||
+                  file.filename.includes('yarn.lock')) {
+                riskFiles.push(`📦 ${file.filename} - Dependency changes`);
+              } else if (file.filename.includes('migration') || 
+                        file.filename.includes('schema')) {
+                riskFiles.push(`🗄️ ${file.filename} - Database schema changes`);
+              } else if (file.filename.includes('.github/workflows/')) {
+                riskFiles.push(`⚙️ ${file.filename} - CI/CD workflow changes`);
+              } else if (file.filename.includes('config') || 
+                        file.filename.includes('.env')) {
+                riskFiles.push(`🔧 ${file.filename} - Configuration changes`);
+              }
+            });
+            
+            if (Object.keys(fileTypes).length > 0) {
+              sizeComment += '**File Types:**\n';
+              Object.entries(fileTypes).forEach(([type, count]) => {
+                sizeComment += `- ${type}: ${count} file${count > 1 ? 's' : ''}\n`;
+              });
+              sizeComment += '\n';
+            }
+            
+            if (riskFiles.length > 0) {
+              sizeComment += '⚠️ **High-Risk Files Detected:**\n';
+              riskFiles.forEach(file => {
+                sizeComment += `- ${file}\n`;
+              });
+              sizeComment += '\n';
+            }
+            
+            sizeComment += `**👀 Review Guidance:** ${reviewGuidance}\n\n`;
+            
+            // Add size-specific recommendations
+            if (totalChanges > 200) {
+              sizeComment += '**📝 Recommendations:**\n';
+              sizeComment += '- Consider breaking this into smaller, focused PRs\n';
+              sizeComment += '- Ensure comprehensive testing due to change scope\n';
+              sizeComment += '- Plan for extended review time\n';
+              sizeComment += '- Consider staging deployment before production\n\n';
+            }
+            
+            sizeComment += '---\n*Size analysis helps reviewers plan their time and focus on risk areas.*';
+            
+            // Only create comment for non-trivial PRs
+            if (totalChanges > 10 || riskFiles.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: sizeComment
+              });
+            }
+
+  auto-assign-reviewers:
+    name: Auto-assign Reviewers
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Assign reviewers based on files and expertise
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const assignees = [];
+            const reviewers = [];
+            
+            // Always assign project owner for now
+            assignees.push('Alex-Blumentals');
+            
+            // Get changed files to determine expertise needed
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+            
+            let needsFrontendReview = false;
+            let needsBackendReview = false;
+            let needsDevOpsReview = false;
+            let needsSecurityReview = false;
+            
+            files.forEach(file => {
+              const filename = file.filename.toLowerCase();
+              
+              if (filename.includes('frontend/') || 
+                  filename.includes('webflow') || 
+                  filename.includes('.css') || 
+                  filename.includes('.html')) {
+                needsFrontendReview = true;
+              }
+              
+              if (filename.includes('backend/') || 
+                  filename.includes('xano') || 
+                  filename.includes('api/')) {
+                needsBackendReview = true;
+              }
+              
+              if (filename.includes('.github/workflows/') || 
+                  filename.includes('docker') || 
+                  filename.includes('deploy')) {
+                needsDevOpsReview = true;
+              }
+              
+              if (filename.includes('security') || 
+                  filename.includes('auth') || 
+                  filename.includes('permission')) {
+                needsSecurityReview = true;
+              }
+            });
+            
+            // Future: Add team members based on expertise
+            // if (needsFrontendReview) reviewers.push('frontend-expert');
+            // if (needsBackendReview) reviewers.push('backend-expert');
+            // if (needsDevOpsReview) reviewers.push('devops-expert');
+            // if (needsSecurityReview) reviewers.push('security-expert');
+            
+            // Assign reviewers
+            if (assignees.length > 0) {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                assignees: assignees
+              });
+              
+              console.log(`Assigned: ${assignees.join(', ')}`);
+            }
+            
+            // Add to project board if configured
+            // This would integrate with GitHub Projects
+            console.log('PR would be added to project board for tracking');
+
+  pr-welcome-message:
+    name: Welcome Message for New PRs
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Post welcome message
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+            
+            const isHotfix = pr.title.toLowerCase().includes('hotfix') || 
+                           pr.body.includes('EMERGENCY HOTFIX');
+            
+            if (!isHotfix) { // Skip welcome for hotfixes to avoid noise
+              const welcomeMessage = `
+              ## 👋 Thank you for your contribution!
+              
+              Your pull request has been automatically processed:
+              
+              ✅ **Auto-labeling** applied based on content analysis  
+              ✅ **Reviewers assigned** based on changed files  
+              ✅ **Size analysis** completed for review planning  
+              
+              **⏱️ What's Next:**
+              - Your PR will be reviewed within our SLA timeframes
+              - Address any template validation issues if highlighted
+              - Respond to reviewer feedback promptly
+              - Keep an eye on CI/CD pipeline results
+              
+              **📚 Resources:**
+              - [Deployment Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/DEPLOYMENT_GUIDE.md)
+              - [Contributing Guidelines](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CONTRIBUTING.md)
+              - [PR Template Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/.github/PR_TEMPLATES_GUIDE.md)
+              
+              **Questions?** Feel free to ask in the comments or reach out via our communication channels.
+              
+              Thanks for helping make this project better! 🚀
+              `;
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: welcomeMessage
+              });
+            }
+
+  update-pr-status:
+    name: Update PR Status
+    runs-on: ubuntu-latest
+    if: github.event.action == 'synchronize'
+    
+    steps:
+      - name: Update status on new commits
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Add updated label when PR is updated
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: ['updated']
+            });
+            
+            // Remove incomplete-template label if it was added
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: 'incomplete-template'
+              });
+            } catch (error) {
+              // Label might not exist, ignore error
+            }
+            
+            console.log('PR status updated after new commits');
