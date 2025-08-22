@@ -1,0 +1,599 @@
+name: Deployment Alerts & Status Monitoring
+
+on:
+  deployment_status:
+  
+  workflow_run:
+    workflows: ["Deploy to Staging", "Deploy to Production"]
+    types: [completed, requested, in_progress]
+  
+  push:
+    branches: [main, develop]
+  
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Type of deployment alert to test'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - test
+          - staging
+          - production
+          - rollback
+
+jobs:
+  deployment-status:
+    name: Deployment Status Tracking
+    runs-on: ubuntu-latest
+    if: github.event_name == 'deployment_status' || github.event_name == 'workflow_run'
+    
+    steps:
+      - name: Extract deployment information
+        id: deployment-info
+        run: |
+          if [ "${{ github.event_name }}" = "deployment_status" ]; then
+            echo "deployment_id=${{ github.event.deployment.id }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.deployment.environment }}" >> $GITHUB_OUTPUT
+            echo "state=${{ github.event.deployment_status.state }}" >> $GITHUB_OUTPUT
+            echo "target_url=${{ github.event.deployment_status.target_url }}" >> $GITHUB_OUTPUT
+            echo "description=${{ github.event.deployment_status.description }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "deployment_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.workflow_run.name == 'Deploy to Production' && 'production' || 'staging' }}" >> $GITHUB_OUTPUT
+            echo "state=${{ github.event.workflow_run.conclusion }}" >> $GITHUB_OUTPUT
+            echo "target_url=${{ github.event.workflow_run.html_url }}" >> $GITHUB_OUTPUT
+            echo "description=${{ github.event.workflow_run.name }} workflow" >> $GITHUB_OUTPUT
+          fi
+          
+          # Determine alert priority
+          ENVIRONMENT="${{ github.event.deployment.environment || (github.event.workflow_run.name == 'Deploy to Production' && 'production' || 'staging') }}"
+          STATE="${{ github.event.deployment_status.state || github.event.workflow_run.conclusion }}"
+          
+          case "$ENVIRONMENT" in
+            "production")
+              case "$STATE" in
+                "success"|"completed") echo "priority=high" >> $GITHUB_OUTPUT ;;
+                "failure"|"error") echo "priority=critical" >> $GITHUB_OUTPUT ;;
+                "pending"|"in_progress") echo "priority=medium" >> $GITHUB_OUTPUT ;;
+                *) echo "priority=low" >> $GITHUB_OUTPUT ;;
+              esac
+              ;;
+            "staging")
+              case "$STATE" in
+                "failure"|"error") echo "priority=medium" >> $GITHUB_OUTPUT ;;
+                *) echo "priority=low" >> $GITHUB_OUTPUT ;;
+              esac
+              ;;
+            *)
+              echo "priority=low" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Determine notification channels
+        id: channels
+        run: |
+          ENVIRONMENT="${{ steps.deployment-info.outputs.environment }}"
+          STATE="${{ steps.deployment-info.outputs.state }}"
+          PRIORITY="${{ steps.deployment-info.outputs.priority }}"
+          
+          # Base channels
+          SLACK_CHANNELS="#deployments"
+          DISCORD_WEBHOOK=""
+          EMAIL_RECIPIENTS=""
+          
+          # Add channels based on priority and environment
+          case "$PRIORITY" in
+            "critical")
+              SLACK_CHANNELS="#deployments,#alerts,#ops-team"
+              DISCORD_WEBHOOK="${{ secrets.DISCORD_WEBHOOK_URL }}"
+              EMAIL_RECIPIENTS="ops-team@company.com,cto@company.com"
+              ;;
+            "high")
+              SLACK_CHANNELS="#deployments,#alerts"
+              EMAIL_RECIPIENTS="ops-team@company.com"
+              ;;
+            "medium")
+              SLACK_CHANNELS="#deployments"
+              ;;
+          esac
+          
+          echo "slack_channels=$SLACK_CHANNELS" >> $GITHUB_OUTPUT
+          echo "discord_webhook=$DISCORD_WEBHOOK" >> $GITHUB_OUTPUT
+          echo "email_recipients=$EMAIL_RECIPIENTS" >> $GITHUB_OUTPUT
+
+      - name: Post-deployment health check
+        id: health-check
+        if: steps.deployment-info.outputs.state == 'success'
+        run: |
+          # Wait a bit for deployment to settle
+          sleep 30
+          
+          ENVIRONMENT="${{ steps.deployment-info.outputs.environment }}"
+          
+          case "$ENVIRONMENT" in
+            "production")
+              HEALTH_URL="${{ secrets.WEBFLOW_PRODUCTION_URL || 'https://your-site.com' }}/health"
+              SITE_URL="${{ secrets.WEBFLOW_PRODUCTION_URL || 'https://your-site.com' }}"
+              ;;
+            "staging")
+              HEALTH_URL="${{ secrets.WEBFLOW_STAGING_URL || 'https://staging.your-site.com' }}/health"
+              SITE_URL="${{ secrets.WEBFLOW_STAGING_URL || 'https://staging.your-site.com' }}"
+              ;;
+            *)
+              echo "health_status=skipped" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+          
+          # Basic health checks
+          echo "🔍 Running post-deployment health checks..."
+          
+          # Check if site is accessible
+          if curl -f -s -o /dev/null --max-time 10 "$SITE_URL"; then
+            SITE_STATUS="✅ Accessible"
+          else
+            SITE_STATUS="❌ Inaccessible"
+          fi
+          
+          # Check if health endpoint responds (if available)
+          if curl -f -s -o /dev/null --max-time 10 "$HEALTH_URL"; then
+            HEALTH_STATUS="✅ Healthy"
+          else
+            HEALTH_STATUS="⚠️ No health endpoint"
+          fi
+          
+          # Check for JavaScript errors (basic)
+          JS_ERRORS=$(curl -s "$SITE_URL" | grep -i "error\|exception" | wc -l || echo "0")
+          if [ "$JS_ERRORS" -gt 0 ]; then
+            JS_STATUS="⚠️ Potential JS errors"
+          else
+            JS_STATUS="✅ No obvious JS errors"
+          fi
+          
+          echo "health_status=completed" >> $GITHUB_OUTPUT
+          echo "site_status=$SITE_STATUS" >> $GITHUB_OUTPUT
+          echo "health_endpoint=$HEALTH_STATUS" >> $GITHUB_OUTPUT
+          echo "js_status=$JS_STATUS" >> $GITHUB_OUTPUT
+          
+          # Overall health assessment
+          if [[ "$SITE_STATUS" == *"❌"* ]]; then
+            echo "overall_health=critical" >> $GITHUB_OUTPUT
+            echo "health_message=Site is not accessible after deployment" >> $GITHUB_OUTPUT
+          elif [[ "$JS_STATUS" == *"⚠️"* ]]; then
+            echo "overall_health=warning" >> $GITHUB_OUTPUT
+            echo "health_message=Site is accessible but may have issues" >> $GITHUB_OUTPUT
+          else
+            echo "overall_health=good" >> $GITHUB_OUTPUT
+            echo "health_message=All health checks passed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack deployment notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "username": "Deployment Bot",
+              "icon_emoji": "${{ 
+                steps.deployment-info.outputs.state == 'success' && '🚀' ||
+                steps.deployment-info.outputs.state == 'failure' && '💥' ||
+                steps.deployment-info.outputs.state == 'in_progress' && '⏳' ||
+                '🔄'
+              }}",
+              "attachments": [
+                {
+                  "color": "${{ 
+                    steps.deployment-info.outputs.state == 'success' && 'good' ||
+                    steps.deployment-info.outputs.state == 'failure' && 'danger' ||
+                    steps.deployment-info.outputs.state == 'in_progress' && '#FF9500' ||
+                    '#36a64f'
+                  }}",
+                  "title": "${{ 
+                    steps.deployment-info.outputs.state == 'success' && '✅ Deployment Successful' ||
+                    steps.deployment-info.outputs.state == 'failure' && '❌ Deployment Failed' ||
+                    steps.deployment-info.outputs.state == 'in_progress' && '⏳ Deployment In Progress' ||
+                    '🔄 Deployment Status Update'
+                  }}",
+                  "title_link": "${{ steps.deployment-info.outputs.target_url }}",
+                  "fields": [
+                    {
+                      "title": "Environment",
+                      "value": "${{ steps.deployment-info.outputs.environment }}",
+                      "short": true
+                    },
+                    {
+                      "title": "State",
+                      "value": "${{ steps.deployment-info.outputs.state }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Triggered By",
+                      "value": "${{ github.actor }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Commit",
+                      "value": "<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"[:7],
+                      "short": true
+                    }
+                    ${{ steps.health-check.outputs.health_status == 'completed' && format(',
+                    {
+                      "title": "Post-Deployment Health",
+                      "value": "{0}",
+                      "short": false
+                    }', steps.health-check.outputs.health_message) || '' }}
+                  ],
+                  "footer": "${{ steps.deployment-info.outputs.description }}",
+                  "ts": ${{ github.event.deployment.created_at && github.event.deployment.created_at || github.event.workflow_run.created_at }}
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send Discord notification for critical deployments
+        if: steps.deployment-info.outputs.priority == 'critical' && steps.channels.outputs.discord_webhook != ''
+        run: |
+          STATE="${{ steps.deployment-info.outputs.state }}"
+          ENVIRONMENT="${{ steps.deployment-info.outputs.environment }}"
+          
+          if [ "$STATE" = "failure" ]; then
+            EMOJI="🔥"
+            COLOR="16711680" # Red
+            TITLE="🚨 CRITICAL: Production Deployment Failed"
+            MESSAGE="**IMMEDIATE ACTION REQUIRED**\n\nProduction deployment has failed and may require rollback or hotfix."
+          else
+            EMOJI="🚀"
+            COLOR="65280" # Green  
+            TITLE="✅ Production Deployment Successful"
+            MESSAGE="Production deployment completed successfully."
+          fi
+          
+          curl -X POST "${{ steps.channels.outputs.discord_webhook }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [
+                {
+                  \"title\": \"$TITLE\",
+                  \"description\": \"$MESSAGE\",
+                  \"color\": $COLOR,
+                  \"url\": \"${{ steps.deployment-info.outputs.target_url }}\",
+                  \"fields\": [
+                    {
+                      \"name\": \"Environment\",
+                      \"value\": \"$ENVIRONMENT\",
+                      \"inline\": true
+                    },
+                    {
+                      \"name\": \"Repository\",
+                      \"value\": \"${{ github.repository }}\",
+                      \"inline\": true
+                    },
+                    {
+                      \"name\": \"Actor\",
+                      \"value\": \"${{ github.actor }}\",
+                      \"inline\": true
+                    }
+                  ],
+                  \"footer\": {
+                    \"text\": \"Deployment Monitor\"
+                  },
+                  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+                }
+              ]
+            }"
+
+      - name: Send email alert for critical failures
+        if: steps.deployment-info.outputs.priority == 'critical' && steps.deployment-info.outputs.state == 'failure'
+        run: |
+          # Create email content
+          cat > email_content.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="utf-8">
+              <title>Critical Deployment Failure Alert</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 20px; }
+                  .header { background: #dc3545; color: white; padding: 20px; border-radius: 5px; }
+                  .content { padding: 20px; border: 1px solid #ddd; margin-top: 20px; }
+                  .critical { color: #dc3545; font-weight: bold; }
+                  .info-table { width: 100%; border-collapse: collapse; }
+                  .info-table td { padding: 8px; border: 1px solid #ddd; }
+                  .action-items { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>🚨 Critical Deployment Failure</h1>
+                  <p>Immediate attention required for production deployment failure.</p>
+              </div>
+              
+              <div class="content">
+                  <h2>Deployment Details</h2>
+                  <table class="info-table">
+                      <tr><td><strong>Environment</strong></td><td class="critical">${{ steps.deployment-info.outputs.environment }}</td></tr>
+                      <tr><td><strong>Repository</strong></td><td>${{ github.repository }}</td></tr>
+                      <tr><td><strong>Branch</strong></td><td>${{ github.ref_name }}</td></tr>
+                      <tr><td><strong>Commit</strong></td><td>${{ github.sha }}</td></tr>
+                      <tr><td><strong>Actor</strong></td><td>${{ github.actor }}</td></tr>
+                      <tr><td><strong>Time</strong></td><td>$(date)</td></tr>
+                  </table>
+                  
+                  <div class="action-items">
+                      <h3>⚡ Immediate Action Items</h3>
+                      <ul>
+                          <li><strong>Investigate:</strong> Review deployment logs and error messages</li>
+                          <li><strong>Assess Impact:</strong> Determine if production is affected</li>
+                          <li><strong>Rollback:</strong> Consider rolling back to previous stable version</li>
+                          <li><strong>Communicate:</strong> Notify stakeholders of any user impact</li>
+                          <li><strong>Fix:</strong> Address root cause and prepare hotfix if needed</li>
+                      </ul>
+                  </div>
+                  
+                  <h3>🔗 Useful Links</h3>
+                  <ul>
+                      <li><a href="${{ steps.deployment-info.outputs.target_url }}">Deployment Run</a></li>
+                      <li><a href="https://github.com/${{ github.repository }}/actions">GitHub Actions</a></li>
+                      <li><a href="https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}">Recent Commits</a></li>
+                  </ul>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          # Send email using GitHub's SMTP or external service
+          echo "Email alert prepared for critical deployment failure"
+          echo "Recipients: ${{ steps.channels.outputs.email_recipients }}"
+          
+          # If you have an email service configured, send the email here
+          # Example with sendgrid, ses, or other email service
+
+      - name: Create incident ticket
+        if: steps.deployment-info.outputs.priority == 'critical' && steps.deployment-info.outputs.state == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 INCIDENT: Critical Deployment Failure in ${{ steps.deployment-info.outputs.environment }}`,
+              body: `
+              # 🚨 Critical Deployment Incident
+              
+              **Incident ID:** DEPLOY-${Date.now()}
+              **Severity:** Critical
+              **Environment:** ${{ steps.deployment-info.outputs.environment }}
+              **Status:** Open
+              
+              ## Incident Details
+              - **Deployment ID:** ${{ steps.deployment-info.outputs.deployment_id }}
+              - **Repository:** ${{ github.repository }}
+              - **Branch:** ${{ github.ref_name }}
+              - **Commit:** ${{ github.sha }}
+              - **Actor:** ${{ github.actor }}
+              - **Failure Time:** ${new Date().toISOString()}
+              
+              ## Impact Assessment
+              - [ ] **User Impact:** To be determined
+              - [ ] **Service Availability:** To be assessed
+              - [ ] **Data Integrity:** To be verified
+              - [ ] **Security Impact:** To be evaluated
+              
+              ## Response Checklist
+              ### Immediate (0-15 minutes)
+              - [ ] Acknowledge incident
+              - [ ] Assess user impact
+              - [ ] Determine rollback necessity
+              - [ ] Notify stakeholders
+              
+              ### Short-term (15-60 minutes)
+              - [ ] Implement fix or rollback
+              - [ ] Verify system stability
+              - [ ] Update status page
+              - [ ] Monitor key metrics
+              
+              ### Follow-up (1+ hours)
+              - [ ] Root cause analysis
+              - [ ] Post-incident review
+              - [ ] Document lessons learned
+              - [ ] Update procedures
+              
+              ## Communication
+              - **Slack Channels:** #alerts, #ops-team
+              - **Incident Commander:** To be assigned
+              - **Stakeholder Notifications:** Pending
+              
+              ## Links
+              - [Deployment Run](${{ steps.deployment-info.outputs.target_url }})
+              - [GitHub Actions](https://github.com/${{ github.repository }}/actions)
+              - [Monitoring Dashboard](https://your-monitoring-dashboard.com)
+              
+              **Auto-generated incident ticket**
+              `,
+              labels: [
+                'incident',
+                'critical',
+                'deployment-failure',
+                'ops-urgent',
+                `env:${{ steps.deployment-info.outputs.environment }}`
+              ],
+              assignees: ['Alex-Blumentals'] // Update with your on-call team
+            });
+            
+            console.log(`Created incident ticket #${issue.data.number}`);
+            
+            // Add incident to project board if configured
+            // github.rest.projects.createCard({...});
+
+      - name: Update deployment status
+        if: steps.deployment-info.outputs.state == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Update deployment status with failure information
+            if (context.payload.deployment) {
+              await github.rest.repos.createDeploymentStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                deployment_id: context.payload.deployment.id,
+                state: 'failure',
+                description: 'Deployment failed - incident created',
+                environment_url: '${{ steps.deployment-info.outputs.target_url }}'
+              });
+            }
+
+      - name: Trigger rollback workflow
+        if: steps.deployment-info.outputs.environment == 'production' && steps.deployment-info.outputs.state == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Trigger automatic rollback for production failures
+            const rollback = await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'rollback.yml', // You'd need to create this workflow
+              ref: 'main',
+              inputs: {
+                environment: 'production',
+                reason: 'Automatic rollback due to deployment failure',
+                triggered_by: '${{ github.actor }}'
+              }
+            });
+            
+            console.log('Triggered automatic rollback workflow');
+
+  deployment-metrics:
+    name: Deployment Metrics Collection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    
+    steps:
+      - name: Collect deployment metrics
+        id: metrics
+        run: |
+          # Calculate deployment metrics
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          DURATION=$(( $(date -d "${{ github.event.workflow_run.updated_at }}" +%s) - $(date -d "${{ github.event.workflow_run.created_at }}" +%s) ))
+          
+          echo "workflow_name=$WORKFLOW_NAME" >> $GITHUB_OUTPUT
+          echo "duration_seconds=$DURATION" >> $GITHUB_OUTPUT
+          echo "duration_minutes=$(( DURATION / 60 ))" >> $GITHUB_OUTPUT
+          
+          # Determine environment
+          if [[ "$WORKFLOW_NAME" == *"Production"* ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [[ "$WORKFLOW_NAME" == *"Staging"* ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          else
+            echo "environment=other" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send metrics to monitoring
+        run: |
+          # Send deployment metrics to your monitoring system
+          # Example: Send to DataDog, New Relic, or custom metrics endpoint
+          
+          METRICS_PAYLOAD=$(cat << EOF
+          {
+            "deployment": {
+              "environment": "${{ steps.metrics.outputs.environment }}",
+              "duration_seconds": ${{ steps.metrics.outputs.duration_seconds }},
+              "duration_minutes": ${{ steps.metrics.outputs.duration_minutes }},
+              "status": "success",
+              "repository": "${{ github.repository }}",
+              "branch": "${{ github.ref_name }}",
+              "commit": "${{ github.sha }}",
+              "actor": "${{ github.actor }}",
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }
+          }
+          EOF
+          )
+          
+          echo "Deployment metrics collected:"
+          echo "$METRICS_PAYLOAD" | jq .
+          
+          # Send to metrics endpoint (if configured)
+          if [ -n "${{ secrets.METRICS_ENDPOINT }}" ]; then
+            curl -X POST "${{ secrets.METRICS_ENDPOINT }}" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.METRICS_API_KEY }}" \
+              -d "$METRICS_PAYLOAD" || echo "Failed to send metrics"
+          fi
+
+  test-deployment-alerts:
+    name: Test Deployment Alerts
+    runs-on: ubuntu-latest
+    if: github.event.inputs.deployment_type != ''
+    
+    steps:
+      - name: Simulate deployment event
+        run: |
+          echo "Testing deployment alerts for: ${{ github.event.inputs.deployment_type }}"
+          
+          case "${{ github.event.inputs.deployment_type }}" in
+            "test")
+              echo "Running test deployment alert simulation"
+              ;;
+            "staging")
+              echo "Simulating staging deployment notification"
+              ;;
+            "production")
+              echo "Simulating production deployment notification"
+              ;;
+            "rollback")
+              echo "Simulating rollback deployment notification"
+              ;;
+          esac
+
+      - name: Send test notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "username": "Deployment Bot (TEST)",
+              "icon_emoji": "🧪",
+              "text": "This is a test deployment notification for: ${{ github.event.inputs.deployment_type }}",
+              "attachments": [
+                {
+                  "color": "warning",
+                  "title": "🧪 Test Deployment Alert",
+                  "fields": [
+                    {
+                      "title": "Type",
+                      "value": "${{ github.event.inputs.deployment_type }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Triggered By",
+                      "value": "${{ github.actor }}",
+                      "short": true
+                    }
+                  ],
+                  "footer": "This is a test message"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
