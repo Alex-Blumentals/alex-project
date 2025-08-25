@@ -1,0 +1,400 @@
+/* Problem Section - Split Panel Collision Animation */
+
+.problema-section {
+  position: relative;
+  min-height: 100vh;
+  padding: 80px 0;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+  overflow: hidden;
+}
+
+.problema-container {
+  position: relative;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  z-index: 10;
+}
+
+/* Header Section */
+.problema-header {
+  text-align: center;
+  margin-bottom: 80px;
+  z-index: 20;
+  position: relative;
+}
+
+.problema-badge {
+  display: inline-block;
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  padding: 8px 20px;
+  border-radius: 25px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.problema-title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  color: white;
+  margin-bottom: 20px;
+  line-height: 1.2;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.problema-subtitle {
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.8);
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Main Collision Stage */
+.collision-stage {
+  position: relative;
+  height: 80vh;
+  min-height: 600px;
+  margin: 60px 0;
+  perspective: 1000px;
+}
+
+.split-panel-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Left Panel - Infrastructure Boom */
+.left-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: all 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0 20px 20px 0;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.left-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: brightness(0.7);
+  transition: transform 0.3s ease;
+}
+
+.left-panel:hover .left-background {
+  transform: scale(1.05);
+}
+
+.left-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.6) 100%);
+  z-index: 2;
+}
+
+.left-content {
+  position: absolute;
+  bottom: 40px;
+  left: 40px;
+  right: 40px;
+  z-index: 3;
+  color: white;
+}
+
+.left-title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin-bottom: 15px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Right Panel - Water Crisis */
+.right-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  transform: translateX(100%);
+  opacity: 0;
+  transition: all 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 20px 0 0 20px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.right-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: brightness(0.7);
+  transition: transform 0.3s ease;
+}
+
+.right-panel:hover .right-background {
+  transform: scale(1.05);
+}
+
+.right-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.8) 0%, rgba(255, 165, 0, 0.6) 100%);
+  z-index: 2;
+}
+
+.right-content {
+  position: absolute;
+  bottom: 40px;
+  left: 40px;
+  right: 40px;
+  z-index: 3;
+  color: white;
+}
+
+.right-title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin-bottom: 15px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Collision Animation Active States */
+.collision-active .left-panel {
+  transform: translateX(-10%);
+  opacity: 1;
+}
+
+.collision-active .right-panel {
+  transform: translateX(10%);
+  opacity: 1;
+}
+
+/* Center Collision Overlay */
+.collision-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  z-index: 10;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 30px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  min-width: 300px;
+}
+
+.collision-active .collision-overlay {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+  transition-delay: 0.8s;
+}
+
+.collision-text {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+  color: #ff6b6b;
+  margin-bottom: 15px;
+  text-shadow: 0 2px 10px rgba(255, 107, 107, 0.3);
+}
+
+.collision-impact-line {
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, #ff6b6b, #ffa500);
+  margin: 0 auto;
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
+}
+
+/* Floating Chips Animation */
+.floating-chips-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.floating-chips-container > div {
+  position: absolute;
+  background: rgba(255, 107, 107, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  opacity: 0;
+  transform: scale(0) rotate(0deg);
+  transition: all 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.chip-costos {
+  top: 20%;
+  left: 15%;
+}
+
+.chip-danos {
+  top: 30%;
+  right: 20%;
+}
+
+.chip-resistencia {
+  bottom: 30%;
+  left: 20%;
+}
+
+.chip-riesgo {
+  bottom: 20%;
+  right: 15%;
+}
+
+/* Chips Active Animation */
+.collision-active .chip-costos {
+  opacity: 1;
+  transform: scale(1) rotate(-5deg);
+  transition-delay: 1.2s;
+}
+
+.collision-active .chip-danos {
+  opacity: 1;
+  transform: scale(1) rotate(5deg);
+  transition-delay: 1.4s;
+}
+
+.collision-active .chip-resistencia {
+  opacity: 1;
+  transform: scale(1) rotate(3deg);
+  transition-delay: 1.6s;
+}
+
+.collision-active .chip-riesgo {
+  opacity: 1;
+  transform: scale(1) rotate(-3deg);
+  transition-delay: 1.8s;
+}
+
+/* Mobile Responsive Design */
+@media (max-width: 991px) {
+  .split-panel-container {
+    display: none;
+  }
+  
+  .mobile-collision-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: auto;
+    padding: 40px 20px;
+  }
+  
+  .mobile-infra-panel,
+  .mobile-water-panel {
+    height: 200px;
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+    background-size: cover;
+    background-position: center;
+  }
+  
+  .mobile-collision-indicator {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 107, 107, 0.1);
+    border-radius: 10px;
+    border: 2px dashed rgba(255, 107, 107, 0.3);
+    margin: 10px 0;
+  }
+  
+  .floating-chips-container {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 30px;
+  }
+  
+  .floating-chips-container > div {
+    position: static;
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Performance Optimizations */
+.left-panel,
+.right-panel,
+.collision-overlay {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.left-background,
+.right-background {
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .left-panel,
+  .right-panel,
+  .collision-overlay,
+  .floating-chips-container > div {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
