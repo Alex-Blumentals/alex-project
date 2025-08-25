@@ -8,6 +8,12 @@ This is a full-stack project template that integrates Webflow (frontend) with Xa
 
 ## Development Commands
 
+### Custom Claude Slash Commands (Context Restoration)
+- `claude -p '/project-status'` - Shows current project state and overall completion
+- `claude -p '/setup-reminder'` - Lists setup steps completed/pending with progress tracking
+- `claude -p '/integration-check'` - Verifies all tool integrations and system health
+- `claude -p '/next-steps'` - Shows prioritized next actions with time estimates
+
 ### Essential Commands
 - `npm run dev` - Start both Webflow and Xano development servers concurrently
 - `npm run build` - Build the project for production
@@ -15,6 +21,14 @@ This is a full-stack project template that integrates Webflow (frontend) with Xa
 - `npm run lint` - Run ESLint on all JavaScript files
 - `npm run format` - Format code with Prettier
 - `npm run test` - Run test suite with Vitest
+
+### GitHub & Monitoring Commands
+- `gh pr view 2` - View the main project setup pull request
+- `gh pr merge 2 --merge` - Merge the project setup (critical first step)
+- `gh workflow run api-health-monitoring.yml` - Test API health monitoring
+- `gh workflow run performance-monitoring.yml` - Test performance monitoring
+- `gh secret list` - List configured GitHub secrets
+- `gh secret set SECRET_NAME --body 'value'` - Configure GitHub secrets
 
 ### Webflow-Specific Commands
 - `npm run webflow:dev` - Start Webflow development server with file watching
