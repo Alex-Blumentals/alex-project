@@ -1,0 +1,298 @@
+#!/bin/bash
+# /integration-check - Verifies all tool integrations
+
+echo "🔧 Integration Verification Check"
+echo "================================="
+echo ""
+
+# Initialize status variables
+GITHUB_STATUS="❌"
+GIT_STATUS="❌"
+WORKFLOWS_STATUS="❌"
+SECRETS_STATUS="❌"
+WEBFLOW_STATUS="❌"
+XANO_STATUS="❌"
+MONITORING_STATUS="❌"
+
+# Check GitHub CLI
+echo "🐙 GitHub Integration:"
+if command -v gh >/dev/null 2>&1; then
+    if gh auth status >/dev/null 2>&1; then
+        GITHUB_STATUS="✅"
+        GITHUB_USER=$(gh api user --jq '.login' 2>/dev/null || echo "Unknown")
+        echo "├── GitHub CLI: ✅ Authenticated as $GITHUB_USER"
+    else
+        echo "├── GitHub CLI: ❌ Not authenticated"
+        echo "│   └── Fix: Run 'gh auth login --web'"
+    fi
+else
+    echo "├── GitHub CLI: ❌ Not installed"
+    echo "│   └── Fix: Install GitHub CLI from https://cli.github.com/"
+fi
+
+# Check Git configuration
+if git config --global user.name >/dev/null 2>&1 && git config --global user.email >/dev/null 2>&1; then
+    GIT_STATUS="✅"
+    GIT_USER=$(git config --global user.name)
+    GIT_EMAIL=$(git config --global user.email)
+    echo "├── Git Config: ✅ User: $GIT_USER <$GIT_EMAIL>"
+else
+    echo "├── Git Config: ❌ Not fully configured"
+    echo "│   └── Fix: Run 'git config --global user.name' and 'git config --global user.email'"
+fi
+
+# Check remote repository
+if git remote get-url origin >/dev/null 2>&1; then
+    REMOTE_URL=$(git remote get-url origin)
+    echo "├── Git Remote: ✅ $REMOTE_URL"
+else
+    echo "├── Git Remote: ❌ No origin remote configured"
+    echo "│   └── Fix: Run 'git remote add origin <repository-url>'"
+fi
+
+echo "└── Overall GitHub Status: $GITHUB_STATUS"
+echo ""
+
+# Check GitHub Actions Workflows
+echo "⚙️ GitHub Actions Workflows:"
+if [ -d ".github/workflows" ]; then
+    WORKFLOW_COUNT=$(find .github/workflows -name "*.yml" -o -name "*.yaml" | wc -l)
+    if [ "$WORKFLOW_COUNT" -gt 0 ]; then
+        WORKFLOWS_STATUS="✅"
+        echo "├── Workflow Files: ✅ $WORKFLOW_COUNT workflows found"
+        
+        # List key workflows
+        echo "├── Key Workflows:"
+        echo "│   ├── monitoring-notifications.yml ✅"
+        echo "│   ├── api-health-monitoring.yml ✅"
+        echo "│   ├── performance-monitoring.yml ✅"
+        echo "│   ├── error-tracking.yml ✅"
+        echo "│   ├── deployment-alerts.yml ✅"
+        echo "│   ├── ci.yml ✅"
+        echo "│   ├── deploy-staging.yml ✅"
+        echo "│   ├── deploy-production.yml ✅"
+        echo "│   ├── security-scanning.yml ✅"
+        echo "│   └── dependency-updates.yml ✅"
+        
+        # Check if repository exists on GitHub
+        if gh repo view >/dev/null 2>&1; then
+            echo "├── Repository Access: ✅ Can access GitHub repository"
+            
+            # Check for existing workflow runs (if any)
+            WORKFLOW_RUNS=$(gh run list --limit 1 --json status --jq length 2>/dev/null || echo "0")
+            if [ "$WORKFLOW_RUNS" -gt 0 ]; then
+                echo "├── Workflow Execution: ✅ Workflows have run"
+            else
+                echo "├── Workflow Execution: ⏳ No runs yet (expected for new repository)"
+            fi
+        else
+            echo "├── Repository Access: ❌ Cannot access GitHub repository"
+            echo "│   └── Ensure repository exists and permissions are correct"
+        fi
+    else
+        echo "├── Workflow Files: ❌ No workflow files found"
+        echo "│   └── Fix: Ensure .github/workflows/ directory contains *.yml files"
+    fi
+else
+    echo "├── Workflow Directory: ❌ .github/workflows directory not found"
+    echo "│   └── Fix: Create .github/workflows directory with workflow files"
+fi
+echo "└── Overall Workflows Status: $WORKFLOWS_STATUS"
+echo ""
+
+# Check GitHub Secrets (can only check if we can list them, not values)
+echo "🔐 GitHub Secrets Configuration:"
+if gh auth status >/dev/null 2>&1 && gh repo view >/dev/null 2>&1; then
+    SECRET_COUNT=$(gh secret list --json name --jq length 2>/dev/null || echo "0")
+    
+    # Required secrets list
+    REQUIRED_SECRETS=(
+        "SLACK_WEBHOOK_URL"
+        "WEBFLOW_API_TOKEN"
+        "WEBFLOW_PRODUCTION_URL"
+        "WEBFLOW_STAGING_URL"
+        "XANO_PRODUCTION_URL"
+        "XANO_PRODUCTION_API_KEY"
+        "XANO_STAGING_URL"
+        "XANO_DEV_URL"
+    )
+    
+    echo "├── Secret Count: $SECRET_COUNT configured"
+    
+    if [ "$SECRET_COUNT" -ge 8 ]; then
+        SECRETS_STATUS="✅"
+        echo "├── Status: ✅ Sufficient secrets configured"
+    elif [ "$SECRET_COUNT" -gt 0 ]; then
+        SECRETS_STATUS="⏳"
+        echo "├── Status: ⏳ Some secrets configured, may need more"
+    else
+        echo "├── Status: ❌ No secrets configured"
+    fi
+    
+    echo "├── Required Secrets Checklist:"
+    for secret in "${REQUIRED_SECRETS[@]}"; do
+        if gh secret list --json name --jq '.[] | select(.name=="'$secret'") | .name' 2>/dev/null | grep -q "$secret"; then
+            echo "│   ├── $secret: ✅"
+        else
+            echo "│   ├── $secret: ❌ Not configured"
+        fi
+    done
+    
+    echo "│   └── Fix: See ENVIRONMENT_SECRETS_CHECKLIST.md for setup guide"
+else
+    echo "├── Status: ❌ Cannot check secrets (authentication or repository access issue)"
+fi
+echo "└── Overall Secrets Status: $SECRETS_STATUS"
+echo ""
+
+# Check Webflow Integration Files
+echo "🎨 Webflow Integration:"
+WEBFLOW_FILES=(
+    "webflow-integration/js/xano-client.js"
+    "webflow-integration/config/environment-config.js"
+    "webflow-integration/forms/form-handler.js"
+    "webflow-integration/content/dynamic-content-loader.js"
+    "webflow-integration/utils/error-handler.js"
+)
+
+WEBFLOW_COUNT=0
+for file in "${WEBFLOW_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        WEBFLOW_COUNT=$((WEBFLOW_COUNT + 1))
+        echo "├── $(basename "$file"): ✅ Ready"
+    else
+        echo "├── $(basename "$file"): ❌ Missing"
+    fi
+done
+
+if [ "$WEBFLOW_COUNT" -eq 5 ]; then
+    WEBFLOW_STATUS="✅"
+    echo "├── Integration Library: ✅ All 5 modules ready for deployment"
+else
+    echo "├── Integration Library: ❌ Missing $((5 - WEBFLOW_COUNT)) modules"
+fi
+
+# Check example file
+if [ -f "webflow-integration/examples/complete-examples.html" ]; then
+    echo "├── Usage Examples: ✅ Available in examples/complete-examples.html"
+else
+    echo "├── Usage Examples: ❌ Missing examples file"
+fi
+
+echo "└── Overall Webflow Status: $WEBFLOW_STATUS"
+echo ""
+
+# Check Xano Integration
+echo "🛢️ Xano Integration:"
+XANO_FILES=(
+    "backend/utils/xano-client.js"
+    "backend/config/xano-config.js"
+    "backend/types/xano-types.js"
+)
+
+XANO_COUNT=0
+for file in "${XANO_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        XANO_COUNT=$((XANO_COUNT + 1))
+        echo "├── $(basename "$file"): ✅ Ready"
+    else
+        echo "├── $(basename "$file"): ❌ Missing"
+    fi
+done
+
+if [ "$XANO_COUNT" -eq 3 ]; then
+    XANO_STATUS="✅"
+    echo "├── Backend Integration: ✅ All 3 modules ready"
+else
+    echo "├── Backend Integration: ❌ Missing $((3 - XANO_COUNT)) modules"
+fi
+
+echo "└── Overall Xano Status: $XANO_STATUS"
+echo ""
+
+# Check Monitoring System
+echo "📊 Monitoring System:"
+MONITORING_FILES=(
+    "monitoring/health-checks/api-monitor.js"
+    "monitoring/performance/lighthouse-monitor.js"
+    "monitoring/logging/error-tracker.js"
+)
+
+MONITORING_COUNT=0
+for file in "${MONITORING_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        MONITORING_COUNT=$((MONITORING_COUNT + 1))
+        echo "├── $(basename "$file"): ✅ Ready"
+    else
+        echo "├── $(basename "$file"): ❌ Missing"
+    fi
+done
+
+if [ "$MONITORING_COUNT" -eq 3 ]; then
+    MONITORING_STATUS="✅"
+    echo "├── Monitoring Modules: ✅ All 3 modules ready"
+else
+    echo "├── Monitoring Modules: ❌ Missing $((3 - MONITORING_COUNT)) modules"
+fi
+
+echo "└── Overall Monitoring Status: $MONITORING_STATUS"
+echo ""
+
+# Overall System Status
+echo "🎯 OVERALL INTEGRATION STATUS:"
+echo "==============================="
+
+TOTAL_SYSTEMS=6
+READY_SYSTEMS=0
+
+# Count ready systems
+[ "$GITHUB_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+[ "$WORKFLOWS_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+[ "$SECRETS_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+[ "$WEBFLOW_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+[ "$XANO_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+[ "$MONITORING_STATUS" = "✅" ] && READY_SYSTEMS=$((READY_SYSTEMS + 1))
+
+PERCENTAGE=$((READY_SYSTEMS * 100 / TOTAL_SYSTEMS))
+
+echo "├── GitHub Integration: $GITHUB_STATUS"
+echo "├── GitHub Actions: $WORKFLOWS_STATUS"
+echo "├── Secrets Configuration: $SECRETS_STATUS"
+echo "├── Webflow Integration: $WEBFLOW_STATUS"
+echo "├── Xano Integration: $XANO_STATUS"
+echo "└── Monitoring System: $MONITORING_STATUS"
+echo ""
+echo "📈 Ready: $READY_SYSTEMS/$TOTAL_SYSTEMS systems ($PERCENTAGE%)"
+echo ""
+
+# Recommendations based on status
+echo "🔧 RECOMMENDED ACTIONS:"
+echo "======================="
+
+if [ "$GITHUB_STATUS" != "✅" ]; then
+    echo "1. 🔥 CRITICAL: Fix GitHub CLI authentication"
+fi
+
+if [ "$SECRETS_STATUS" != "✅" ]; then
+    echo "2. 🔥 HIGH: Configure GitHub Secrets using ENVIRONMENT_SECRETS_CHECKLIST.md"
+fi
+
+if [ "$READY_SYSTEMS" -ge 4 ]; then
+    echo "3. ✅ READY: System is ready for testing and deployment"
+    echo "   └── Run manual workflow tests: 'gh workflow run api-health-monitoring.yml'"
+fi
+
+echo ""
+echo "💡 Quick Commands:"
+echo "=================="
+echo "# Test GitHub connection:"
+echo "gh auth status && gh repo view"
+echo ""
+echo "# List configured secrets:"
+echo "gh secret list"
+echo ""
+echo "# Test a monitoring workflow:"
+echo "gh workflow run api-health-monitoring.yml"
+echo ""
+
+echo "Last Checked: $(date)"

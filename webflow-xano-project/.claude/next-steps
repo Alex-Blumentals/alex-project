@@ -1,0 +1,250 @@
+#!/bin/bash
+# /next-steps - Shows prioritized next actions
+
+echo "🎯 Prioritized Next Steps"
+echo "========================="
+echo ""
+
+# Check current project state to provide contextual next steps
+PR_EXISTS=false
+SECRETS_COUNT=0
+WORKFLOWS_ACTIVE=false
+
+# Check if PR exists
+if gh pr list --head initial-project-setup --json number --jq length >/dev/null 2>&1; then
+    PR_COUNT=$(gh pr list --head initial-project-setup --json number --jq length 2>/dev/null || echo "0")
+    if [ "$PR_COUNT" -gt "0" ]; then
+        PR_EXISTS=true
+    fi
+fi
+
+# Check secrets count
+if gh auth status >/dev/null 2>&1 && gh repo view >/dev/null 2>&1; then
+    SECRETS_COUNT=$(gh secret list --json name --jq length 2>/dev/null || echo "0")
+fi
+
+# Check for workflow runs
+if gh run list --limit 1 >/dev/null 2>&1; then
+    RUN_COUNT=$(gh run list --limit 1 --json status --jq length 2>/dev/null || echo "0")
+    if [ "$RUN_COUNT" -gt 0 ]; then
+        WORKFLOWS_ACTIVE=true
+    fi
+fi
+
+echo "🔥 CRITICAL PRIORITY (Do These First):"
+echo "======================================"
+echo ""
+
+if [ "$PR_EXISTS" = true ]; then
+    echo "1. 📋 MERGE PULL REQUEST #2"
+    echo "   Status: ⚠️ BLOCKING ALL OTHER STEPS"
+    echo "   Action: Review and merge the comprehensive project setup"
+    echo "   Command: gh pr view 2 && gh pr merge 2 --merge"
+    echo "   Why: Activates all GitHub Actions workflows and project structure"
+    echo "   Time: 5 minutes"
+    echo ""
+else
+    echo "1. ✅ Pull Request: Already merged or not found"
+    echo ""
+fi
+
+echo "2. 🔐 CONFIGURE ESSENTIAL GITHUB SECRETS"
+echo "   Status: $([ "$SECRETS_COUNT" -ge 8 ] && echo "✅ Configured" || echo "❌ Missing ($SECRETS_COUNT/8+ configured)")"
+echo "   Priority: Cannot run monitoring without these"
+echo "   Essential Secrets (minimum viable):"
+echo "   ├── SLACK_WEBHOOK_URL (for notifications)"
+echo "   ├── WEBFLOW_PRODUCTION_URL (for monitoring)"
+echo "   ├── XANO_PRODUCTION_URL (for API health checks)"
+echo "   └── XANO_PRODUCTION_API_KEY (for API access)"
+echo "   Guide: See ENVIRONMENT_SECRETS_CHECKLIST.md"
+echo "   Command: gh secret set SLACK_WEBHOOK_URL --body 'your-webhook-url'"
+echo "   Time: 15 minutes"
+echo ""
+
+echo "3. 🔗 SET UP SLACK INTEGRATION"
+echo "   Status: Depends on webhook URL secret"
+echo "   Action: Create Slack channels and webhook"
+echo "   Required Channels:"
+echo "   ├── #alerts (critical issues)"
+echo "   ├── #monitoring (general monitoring)"
+echo "   ├── #performance (performance alerts)"
+echo "   └── #deployments (deployment notifications)"
+echo "   Guide: https://api.slack.com/messaging/webhooks"
+echo "   Time: 10 minutes"
+echo ""
+
+echo "🚀 HIGH PRIORITY (Do These Next):"
+echo "================================="
+echo ""
+
+echo "4. 🧪 TEST MONITORING WORKFLOWS"
+echo "   Status: $([ "$WORKFLOWS_ACTIVE" = true ] && echo "✅ Some workflows tested" || echo "⏳ Not tested yet")"
+echo "   Action: Manually trigger workflows to verify setup"
+echo "   Commands:"
+echo "   ├── gh workflow run api-health-monitoring.yml"
+echo "   ├── gh workflow run performance-monitoring.yml" 
+echo "   ├── gh workflow run error-tracking.yml"
+echo "   └── gh workflow run monitoring-notifications.yml"
+echo "   Expected: Should see Slack notifications"
+echo "   Time: 20 minutes (including wait time for completion)"
+echo ""
+
+echo "5. 🎨 DEPLOY WEBFLOW INTEGRATION"
+echo "   Status: Code ready, deployment pending"
+echo "   Action: Add integration scripts to Webflow site"
+echo "   Files to add to Webflow Custom Code:"
+echo "   ├── Head Code: xano-client.js, environment-config.js"
+echo "   ├── Before </body>: form-handler.js, dynamic-content-loader.js, error-handler.js"
+echo "   └── Initialize components with provided JavaScript"
+echo "   Guide: See webflow-integration/README.md"
+echo "   Time: 30 minutes"
+echo ""
+
+echo "6. ⚙️ CONFIGURE XANO API ENDPOINTS"
+echo "   Status: Client ready, endpoints need configuration"
+echo "   Action: Set up and test Xano API endpoints"
+echo "   Requirements:"
+echo "   ├── Verify workspace URLs are correct"
+echo "   ├── Test API authentication"
+echo "   ├── Configure CORS settings"
+echo "   └── Test endpoint connectivity"
+echo "   Commands: Use scripts/xano-dev.js for testing"
+echo "   Time: 45 minutes"
+echo ""
+
+echo "📊 MEDIUM PRIORITY (Complete the Setup):"
+echo "========================================"
+echo ""
+
+echo "7. 🔍 VERIFY END-TO-END INTEGRATION"
+echo "   Dependencies: Steps 4, 5, 6 must be complete"
+echo "   Action: Test complete user flow"
+echo "   Test Scenarios:"
+echo "   ├── Form submission through Webflow to Xano"
+echo "   ├── Dynamic content loading from Xano"
+echo "   ├── Error handling and recovery"
+echo "   └── Performance monitoring alerts"
+echo "   Time: 60 minutes"
+echo ""
+
+echo "8. 📈 ESTABLISH PERFORMANCE BASELINES"
+echo "   Action: Run comprehensive performance audits"
+echo "   Metrics to establish:"
+echo "   ├── Lighthouse scores (target: >80)"
+echo "   ├── Core Web Vitals baselines"
+echo "   ├── API response time baselines"
+echo "   └── Error rate baselines"
+echo "   Commands: Manual workflow runs + analysis"
+echo "   Time: 30 minutes"
+echo ""
+
+echo "9. 🛡️ SECURITY REVIEW & HARDENING"
+echo "   Action: Run security scans and review"
+echo "   Checklist:"
+echo "   ├── gh workflow run security-scanning.yml"
+echo "   ├── Review dependency vulnerabilities"
+echo "   ├── Verify secret management practices"
+echo "   └── Test access controls"
+echo "   Time: 45 minutes"
+echo ""
+
+echo "📝 LOW PRIORITY (Polish & Documentation):"
+echo "========================================="
+echo ""
+
+echo "10. 📚 TEAM DOCUMENTATION & TRAINING"
+echo "    Action: Prepare team resources"
+echo "    Deliverables:"
+echo "    ├── Team onboarding guide"
+echo "    ├── Runbook for common operations"
+echo "    ├── Troubleshooting guide updates"
+echo "    └── Architecture decision records"
+echo "    Time: 2+ hours"
+echo ""
+
+echo "11. 🎛️ ADVANCED MONITORING SETUP"
+echo "    Action: Configure optional advanced features"
+echo "    Optional integrations:"
+echo "    ├── Sentry error tracking"
+echo "    ├── Custom metrics endpoints"
+echo "    ├── Advanced alerting rules"
+echo "    └── Dashboard customization"
+echo "    Time: 1+ hours"
+echo ""
+
+# Time estimation summary
+echo "⏰ TIME ESTIMATION SUMMARY:"
+echo "============================"
+echo "├── Critical Priority: ~20 minutes"
+echo "├── High Priority: ~1.5 hours"
+echo "├── Medium Priority: ~2.25 hours"  
+echo "├── Low Priority: ~3+ hours"
+echo "└── Minimum Viable Setup: ~35 minutes (steps 1-3)"
+echo ""
+
+# Context-aware recommendations
+echo "🎯 RECOMMENDED IMMEDIATE ACTION PLAN:"
+echo "===================================="
+echo ""
+
+if [ "$PR_EXISTS" = true ]; then
+    echo "🚨 URGENT: You have an unmerged Pull Request"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "• PR #2 contains the complete project setup"
+    echo "• Nothing else will work until this is merged"
+    echo "• Review the PR: gh pr view 2"
+    echo "• Merge when ready: gh pr merge 2 --merge"
+    echo ""
+fi
+
+if [ "$SECRETS_COUNT" -lt 4 ]; then
+    echo "⚡ BLOCKING: Missing essential GitHub Secrets"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "• Currently have: $SECRETS_COUNT secrets configured"
+    echo "• Need minimum: 4 essential secrets for basic functionality"
+    echo "• See: ENVIRONMENT_SECRETS_CHECKLIST.md"
+    echo "• Priority order: SLACK_WEBHOOK_URL, WEBFLOW_PRODUCTION_URL,"
+    echo "  XANO_PRODUCTION_URL, XANO_PRODUCTION_API_KEY"
+    echo ""
+fi
+
+echo "🏃‍♂️ 30-MINUTE QUICK START:"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "1. Merge PR #2 (5 min)"
+echo "2. Configure 4 essential secrets (15 min)"
+echo "3. Test one workflow (10 min)"
+echo "→ Result: Basic monitoring system operational"
+echo ""
+
+echo "🎯 TODAY'S FOCUS:"
+echo "━━━━━━━━━━━━━━━━━━━━"
+if [ "$PR_EXISTS" = true ] || [ "$SECRETS_COUNT" -lt 4 ]; then
+    echo "Focus on steps 1-3 (Critical Priority)"
+    echo "Goal: Get basic monitoring operational"
+else
+    echo "Focus on steps 4-6 (High Priority)"
+    echo "Goal: Complete integration deployment"
+fi
+echo ""
+
+# Quick reference commands
+echo "🔧 QUICK REFERENCE COMMANDS:"
+echo "============================"
+echo "# Check current status:"
+echo "claude -p '/project-status'"
+echo ""
+echo "# Verify integrations:"
+echo "claude -p '/integration-check'"
+echo ""
+echo "# See this guide:"
+echo "claude -p '/next-steps'"
+echo ""
+echo "# Merge PR and start:"
+echo "gh pr view 2 && gh pr merge 2 --merge"
+echo ""
+echo "# Test workflow:"
+echo "gh workflow run api-health-monitoring.yml"
+echo ""
+
+echo "Last Updated: $(date)"
+echo "Repository: https://github.com/Alex-Blumentals/alex-project"

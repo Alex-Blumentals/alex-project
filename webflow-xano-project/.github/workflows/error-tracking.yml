@@ -1,0 +1,782 @@
+name: Error Tracking & Analysis
+
+on:
+  schedule:
+    # Every hour during business hours (9 AM - 6 PM UTC)
+    - cron: '0 9-18 * * 1-5'
+    # Every 4 hours outside business hours and weekends
+    - cron: '0 0,4,8,12,16,20 * * 0,6'
+    # Daily comprehensive analysis
+    - cron: '0 8 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      time_window:
+        description: 'Time window for analysis'
+        required: false
+        default: '24h'
+        type: choice
+        options:
+          - '1h'
+          - '6h'
+          - '24h'
+          - '7d'
+      alert_threshold:
+        description: 'Alert threshold level'
+        required: false
+        default: 'medium'
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+          - critical
+
+jobs:
+  error-analysis:
+    name: Error Collection & Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install axios moment
+
+      - name: Run error tracking analysis
+        id: error-tracking
+        run: |
+          cat > error-tracking-runner.js << 'EOF'
+          const axios = require('axios');
+          const moment = require('moment');
+          
+          class ErrorTracker {
+            constructor(timeWindow = '24h') {
+              this.timeWindow = timeWindow;
+              this.results = {
+                timestamp: new Date().toISOString(),
+                timeWindow: timeWindow,
+                sources: {},
+                summary: {
+                  totalErrors: 0,
+                  uniqueErrors: 0,
+                  newErrors: 0,
+                  errorRate: 0,
+                  topErrors: [],
+                  errorsBySource: {},
+                  errorsByLevel: {}
+                },
+                alerts: []
+              };
+            }
+            
+            async collectFromSentry() {
+              if (!process.env.SENTRY_AUTH_TOKEN) {
+                return { status: 'skipped', reason: 'No Sentry token provided' };
+              }
+              
+              try {
+                const org = process.env.SENTRY_ORG || 'your-org';
+                const project = process.env.SENTRY_PROJECT || 'webflow-xano';
+                
+                const response = await axios.get(
+                  `https://sentry.io/api/0/projects/${org}/${project}/events/`,
+                  {
+                    headers: { 'Authorization': `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+                    params: { statsPeriod: this.timeWindow, per_page: 100 }
+                  }
+                );
+                
+                const errors = response.data.map(event => ({
+                  id: event.id,
+                  timestamp: new Date(event.dateCreated),
+                  level: event.level,
+                  message: event.title || event.message,
+                  platform: event.platform,
+                  environment: event.environment,
+                  count: event.count || 1,
+                  source: 'sentry'
+                }));
+                
+                return {
+                  status: 'success',
+                  errorCount: errors.length,
+                  errors: errors
+                };
+                
+              } catch (error) {
+                return {
+                  status: 'error',
+                  error: error.message,
+                  errorCount: 0
+                };
+              }
+            }
+            
+            async collectFromGitHubActions() {
+              try {
+                const since = this.getTimeWindowStart();
+                const response = await axios.get(
+                  `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/actions/runs`,
+                  {
+                    headers: { 
+                      'Authorization': `token ${process.env.GITHUB_TOKEN}`,
+                      'Accept': 'application/vnd.github.v3+json'
+                    },
+                    params: { status: 'failure', per_page: 50, created: `>=${since}` }
+                  }
+                );
+                
+                const errors = response.data.workflow_runs.map(run => ({
+                  id: `github-${run.id}`,
+                  timestamp: new Date(run.created_at),
+                  level: 'error',
+                  message: `Workflow failed: ${run.name}`,
+                  workflow: run.name,
+                  branch: run.head_branch,
+                  actor: run.actor.login,
+                  source: 'github-actions'
+                }));
+                
+                return {
+                  status: 'success',
+                  errorCount: errors.length,
+                  errors: errors
+                };
+                
+              } catch (error) {
+                return {
+                  status: 'error',
+                  error: error.message,
+                  errorCount: 0
+                };
+              }
+            }
+            
+            async collectFromXano() {
+              if (!process.env.XANO_API_KEY) {
+                return { status: 'skipped', reason: 'No Xano API key provided' };
+              }
+              
+              try {
+                // Try to collect from Xano logs endpoint (if available)
+                const baseUrl = process.env.XANO_PRODUCTION_URL || 'https://production-workspace.xano.io/api:v1';
+                const response = await axios.get(`${baseUrl}/logs/errors`, {
+                  headers: { 'Authorization': `Bearer ${process.env.XANO_API_KEY}` },
+                  params: { since: this.getTimeWindowStart(), limit: 100 },
+                  timeout: 10000
+                });
+                
+                const errors = response.data.map(log => ({
+                  id: log.id || `xano-${Date.now()}-${Math.random()}`,
+                  timestamp: new Date(log.timestamp),
+                  level: log.level || 'error',
+                  message: log.message,
+                  endpoint: log.endpoint,
+                  statusCode: log.statusCode,
+                  source: 'xano'
+                }));
+                
+                return {
+                  status: 'success',
+                  errorCount: errors.length,
+                  errors: errors
+                };
+                
+              } catch (error) {
+                if (error.response?.status === 404) {
+                  return { 
+                    status: 'skipped', 
+                    reason: 'Xano error logging endpoint not available',
+                    errorCount: 0
+                  };
+                }
+                return {
+                  status: 'error',
+                  error: error.message,
+                  errorCount: 0
+                };
+              }
+            }
+            
+            async collectFromApplication() {
+              if (!process.env.APP_LOGS_ENDPOINT) {
+                return { status: 'skipped', reason: 'No application logs endpoint configured' };
+              }
+              
+              try {
+                const response = await axios.get(process.env.APP_LOGS_ENDPOINT, {
+                  headers: { 'Authorization': `Bearer ${process.env.APP_LOGS_API_KEY}` },
+                  params: { 
+                    level: 'error', 
+                    since: this.getTimeWindowStart(),
+                    limit: 100
+                  }
+                });
+                
+                const errors = (response.data.logs || response.data).map(log => ({
+                  id: log.id || `app-${Date.now()}-${Math.random()}`,
+                  timestamp: new Date(log.timestamp),
+                  level: log.level || 'error',
+                  message: log.message,
+                  component: log.component,
+                  source: 'application'
+                }));
+                
+                return {
+                  status: 'success',
+                  errorCount: errors.length,
+                  errors: errors
+                };
+                
+              } catch (error) {
+                return {
+                  status: 'error',
+                  error: error.message,
+                  errorCount: 0
+                };
+              }
+            }
+            
+            async runAnalysis() {
+              console.log(`🔍 Starting error analysis for ${this.timeWindow} window...`);
+              
+              // Collect from all sources
+              const sources = {
+                sentry: await this.collectFromSentry(),
+                githubActions: await this.collectFromGitHubActions(),
+                xano: await this.collectFromXano(),
+                application: await this.collectFromApplication()
+              };
+              
+              this.results.sources = sources;
+              
+              // Aggregate all errors
+              const allErrors = [];
+              Object.entries(sources).forEach(([sourceName, sourceData]) => {
+                if (sourceData.status === 'success' && sourceData.errors) {
+                  allErrors.push(...sourceData.errors);
+                  this.results.summary.errorsBySource[sourceName] = sourceData.errorCount;
+                }
+                console.log(`📊 ${sourceName}: ${sourceData.errorCount || 0} errors (${sourceData.status})`);
+              });
+              
+              // Analyze errors
+              this.analyzeErrors(allErrors);
+              this.generateAlerts();
+              
+              return this.results;
+            }
+            
+            analyzeErrors(errors) {
+              this.results.summary.totalErrors = errors.length;
+              
+              // Group by level
+              const errorsByLevel = {};
+              errors.forEach(error => {
+                const level = error.level || 'unknown';
+                errorsByLevel[level] = (errorsByLevel[level] || 0) + 1;
+              });
+              this.results.summary.errorsByLevel = errorsByLevel;
+              
+              // Find unique errors by message
+              const uniqueErrors = new Map();
+              errors.forEach(error => {
+                const key = error.message || error.id;
+                if (!uniqueErrors.has(key)) {
+                  uniqueErrors.set(key, { ...error, count: 0 });
+                }
+                uniqueErrors.get(key).count++;
+              });
+              
+              this.results.summary.uniqueErrors = uniqueErrors.size;
+              
+              // Top errors by frequency
+              this.results.summary.topErrors = Array.from(uniqueErrors.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5);
+              
+              // Calculate error rate (simplified)
+              const hoursInWindow = this.timeWindow === '24h' ? 24 : parseInt(this.timeWindow) || 24;
+              const estimatedRequests = hoursInWindow * 1000; // Rough estimate
+              this.results.summary.errorRate = Math.round((errors.length / estimatedRequests) * 10000) / 100;
+              
+              // Count new errors (last 6 hours)
+              const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+              this.results.summary.newErrors = errors.filter(e => 
+                new Date(e.timestamp) > sixHoursAgo
+              ).length;
+            }
+            
+            generateAlerts() {
+              const s = this.results.summary;
+              const alerts = [];
+              
+              // High error rate alert
+              if (s.errorRate > 5) {
+                alerts.push({
+                  level: 'critical',
+                  title: 'Critical Error Rate',
+                  message: `Error rate (${s.errorRate}%) exceeds critical threshold (5%)`
+                });
+              } else if (s.errorRate > 1) {
+                alerts.push({
+                  level: 'high',
+                  title: 'High Error Rate',
+                  message: `Error rate (${s.errorRate}%) exceeds threshold (1%)`
+                });
+              }
+              
+              // High error count
+              if (s.totalErrors > 100) {
+                alerts.push({
+                  level: 'high',
+                  title: 'High Error Count',
+                  message: `Total errors (${s.totalErrors}) exceeds threshold (100)`
+                });
+              } else if (s.totalErrors > 50) {
+                alerts.push({
+                  level: 'medium',
+                  title: 'Elevated Error Count',
+                  message: `Total errors (${s.totalErrors}) exceeds normal levels (50)`
+                });
+              }
+              
+              // New errors
+              if (s.newErrors > 20) {
+                alerts.push({
+                  level: 'medium',
+                  title: 'Many New Errors',
+                  message: `${s.newErrors} new errors detected in last 6 hours`
+                });
+              }
+              
+              // Top error frequency
+              if (s.topErrors.length > 0 && s.topErrors[0].count > 10) {
+                alerts.push({
+                  level: 'medium',
+                  title: 'Frequent Error Pattern',
+                  message: `"${s.topErrors[0].message}" occurred ${s.topErrors[0].count} times`
+                });
+              }
+              
+              this.results.alerts = alerts;
+            }
+            
+            getTimeWindowStart() {
+              const now = new Date();
+              if (this.timeWindow.endsWith('h')) {
+                const hours = parseInt(this.timeWindow);
+                return new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString().split('T')[0];
+              }
+              return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            }
+          }
+          
+          async function main() {
+            const timeWindow = process.argv[2] || '24h';
+            const tracker = new ErrorTracker(timeWindow);
+            
+            try {
+              const results = await tracker.runAnalysis();
+              
+              // Output results
+              console.log('\n📊 Error Analysis Results:');
+              console.log(`Total Errors: ${results.summary.totalErrors}`);
+              console.log(`Unique Errors: ${results.summary.uniqueErrors}`);
+              console.log(`New Errors (6h): ${results.summary.newErrors}`);
+              console.log(`Error Rate: ${results.summary.errorRate}%`);
+              console.log(`Alerts Generated: ${results.alerts.length}`);
+              
+              // Set GitHub outputs
+              console.log(`::set-output name=total_errors::${results.summary.totalErrors}`);
+              console.log(`::set-output name=unique_errors::${results.summary.uniqueErrors}`);
+              console.log(`::set-output name=new_errors::${results.summary.newErrors}`);
+              console.log(`::set-output name=error_rate::${results.summary.errorRate}`);
+              console.log(`::set-output name=alert_count::${results.alerts.length}`);
+              
+              // Create alert summaries
+              const criticalAlerts = results.alerts.filter(a => a.level === 'critical').length;
+              const highAlerts = results.alerts.filter(a => a.level === 'high').length;
+              
+              console.log(`::set-output name=critical_alerts::${criticalAlerts}`);
+              console.log(`::set-output name=high_alerts::${highAlerts}`);
+              
+              const alertSummary = results.alerts.map(a => `${a.level.toUpperCase()}: ${a.title}`).join('; ');
+              console.log(`::set-output name=alert_summary::${alertSummary}`);
+              
+              // Top errors summary
+              const topErrorsText = results.summary.topErrors.map(e => `${e.message} (${e.count}x)`).join('; ');
+              console.log(`::set-output name=top_errors::${topErrorsText}`);
+              
+              // Determine status
+              let status = 'good';
+              if (criticalAlerts > 0) status = 'critical';
+              else if (highAlerts > 0) status = 'high';
+              else if (results.alerts.length > 0) status = 'medium';
+              
+              console.log(`::set-output name=status::${status}`);
+              
+              // Save detailed results
+              console.log(JSON.stringify(results, null, 2));
+              
+              // Exit with error code for critical issues
+              if (status === 'critical') {
+                console.error('❌ Critical error conditions detected');
+                process.exit(1);
+              }
+              
+            } catch (error) {
+              console.error('❌ Error analysis failed:', error.message);
+              console.log(`::set-output name=status::error`);
+              console.log(`::set-output name=error::${error.message}`);
+              process.exit(1);
+            }
+          }
+          
+          main();
+          EOF
+          
+          node error-tracking-runner.js ${{ github.event.inputs.time_window || '24h' }} > error-analysis-results.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          XANO_API_KEY: ${{ secrets.XANO_PRODUCTION_API_KEY }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+          APP_LOGS_ENDPOINT: ${{ secrets.APP_LOGS_ENDPOINT }}
+          APP_LOGS_API_KEY: ${{ secrets.APP_LOGS_API_KEY }}
+
+      - name: Upload error analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-analysis-results
+          path: error-analysis-results.json
+          retention-days: 30
+
+      - name: Send critical error alert
+        if: steps.error-tracking.outputs.status == 'critical'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#alerts",
+              "username": "Error Monitor",
+              "icon_emoji": ":rotating_light:",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "title": "🚨 CRITICAL: High Error Rate Detected",
+                  "text": "Critical error conditions require immediate attention",
+                  "fields": [
+                    {
+                      "title": "Total Errors",
+                      "value": "${{ steps.error-tracking.outputs.total_errors }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Error Rate",
+                      "value": "${{ steps.error-tracking.outputs.error_rate }}%",
+                      "short": true
+                    },
+                    {
+                      "title": "Critical Alerts",
+                      "value": "${{ steps.error-tracking.outputs.critical_alerts }}",
+                      "short": true
+                    },
+                    {
+                      "title": "New Errors (6h)",
+                      "value": "${{ steps.error-tracking.outputs.new_errors }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Alert Details",
+                      "value": "${{ steps.error-tracking.outputs.alert_summary }}",
+                      "short": false
+                    },
+                    {
+                      "title": "Top Error Patterns",
+                      "value": "${{ steps.error-tracking.outputs.top_errors }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Error Tracking Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send high priority error alert
+        if: steps.error-tracking.outputs.status == 'high'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#monitoring",
+              "username": "Error Monitor",
+              "icon_emoji": ":warning:",
+              "attachments": [
+                {
+                  "color": "warning",
+                  "title": "⚠️ High Error Rate Warning",
+                  "text": "Error levels are elevated and require attention",
+                  "fields": [
+                    {
+                      "title": "Total Errors",
+                      "value": "${{ steps.error-tracking.outputs.total_errors }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Error Rate",
+                      "value": "${{ steps.error-tracking.outputs.error_rate }}%",
+                      "short": true
+                    },
+                    {
+                      "title": "High Alerts",
+                      "value": "${{ steps.error-tracking.outputs.high_alerts }}",
+                      "short": true
+                    },
+                    {
+                      "title": "New Errors",
+                      "value": "${{ steps.error-tracking.outputs.new_errors }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Alert Details",
+                      "value": "${{ steps.error-tracking.outputs.alert_summary }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Error Tracking Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create incident for critical errors
+        if: steps.error-tracking.outputs.critical_alerts > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const totalErrors = '${{ steps.error-tracking.outputs.total_errors }}';
+            const errorRate = '${{ steps.error-tracking.outputs.error_rate }}';
+            const criticalAlerts = '${{ steps.error-tracking.outputs.critical_alerts }}';
+            const alertSummary = '${{ steps.error-tracking.outputs.alert_summary }}';
+            const topErrors = '${{ steps.error-tracking.outputs.top_errors }}';
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 INCIDENT: Critical Error Rate - ${errorRate}% (${totalErrors} errors)`,
+              body: `
+              # 🚨 Critical Error Rate Incident
+              
+              **Incident Type:** High Error Rate
+              **Severity:** Critical
+              **Detection Time:** ${new Date().toISOString()}
+              **Status:** Open
+              
+              ## Incident Metrics
+              - **Total Errors:** ${totalErrors}
+              - **Error Rate:** ${errorRate}%
+              - **Critical Alerts:** ${criticalAlerts}
+              - **Time Window:** ${{ github.event.inputs.time_window || '24h' }}
+              
+              ## Alert Details
+              ${alertSummary}
+              
+              ## Top Error Patterns
+              ${topErrors}
+              
+              ## Immediate Actions Required
+              - [ ] **Investigate Root Causes:** Review top error patterns
+              - [ ] **Check System Health:** Verify all services are operational
+              - [ ] **Monitor User Impact:** Assess user-facing issues
+              - [ ] **Review Recent Changes:** Check recent deployments
+              - [ ] **Scale Response:** Determine if additional resources needed
+              
+              ## Investigation Checklist
+              - [ ] Check application logs for error spikes
+              - [ ] Verify database connectivity and performance
+              - [ ] Review API rate limits and quotas
+              - [ ] Check third-party service status
+              - [ ] Analyze error patterns by source
+              - [ ] Monitor system resources (CPU, memory, disk)
+              
+              ## Communication
+              - **Slack Alerts:** #alerts channel notified
+              - **Incident Commander:** To be assigned
+              - **Status Updates:** Every 30 minutes during active response
+              
+              ## Error Sources
+              - Sentry: Application errors
+              - GitHub Actions: CI/CD failures  
+              - Xano: Backend API errors
+              - Application Logs: Custom error tracking
+              
+              ## Links
+              - [Error Analysis Results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+              - [Monitoring Dashboard](https://your-monitoring-dashboard.com)
+              - [Sentry Dashboard](https://sentry.io/organizations/your-org/projects/webflow-xano/)
+              
+              **Auto-generated by Error Tracking Monitor**
+              `,
+              labels: [
+                'incident',
+                'critical',
+                'error-tracking',
+                'ops-urgent',
+                'high-error-rate'
+              ],
+              assignees: ['Alex-Blumentals']
+            });
+            
+            console.log(`Created critical error incident #${issue.data.number}`);
+
+  error-trend-analysis:
+    name: Error Trend Analysis
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 8 * * *'
+    needs: error-analysis
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download error analysis results
+        uses: actions/download-artifact@v4
+        with:
+          name: error-analysis-results
+
+      - name: Generate trend report
+        run: |
+          cat > trend-analysis.js << 'EOF'
+          const fs = require('fs');
+          
+          function generateTrendReport() {
+            let errorData = {};
+            try {
+              const rawData = fs.readFileSync('error-analysis-results.json', 'utf8');
+              errorData = JSON.parse(rawData);
+            } catch (error) {
+              console.error('Failed to read error data:', error.message);
+              return;
+            }
+            
+            const report = {
+              date: new Date().toISOString().split('T')[0],
+              summary: errorData.summary || {},
+              trends: {
+                daily: 'Generated from historical data analysis',
+                weekly: 'Error patterns over the past week',
+                monthly: 'Long-term error trends'
+              },
+              recommendations: [
+                'Monitor error patterns for early warning signs',
+                'Implement automated error resolution where possible', 
+                'Regular review of error handling procedures',
+                'Update monitoring thresholds based on trends'
+              ]
+            };
+            
+            const markdown = `
+          # 📊 Daily Error Trend Report
+          
+          **Date:** ${report.date}
+          **Total Errors:** ${report.summary.totalErrors || 0}
+          **Unique Error Patterns:** ${report.summary.uniqueErrors || 0}
+          **Error Rate:** ${report.summary.errorRate || 0}%
+          
+          ## 📈 Key Trends
+          
+          ### Error Volume
+          - Today: ${report.summary.totalErrors || 0} errors
+          - Change from yesterday: To be calculated with historical data
+          - 7-day average: To be calculated with historical data
+          
+          ### Error Patterns  
+          - Most frequent errors require ongoing attention
+          - New error patterns may indicate recent changes
+          - Source distribution helps identify problem areas
+          
+          ## 🎯 Recommendations
+          ${report.recommendations.map(r => `- ${r}`).join('\n')}
+          
+          ## 📋 Action Items
+          - Review top error patterns for resolution opportunities
+          - Update error handling based on common issues
+          - Consider additional monitoring for emerging patterns
+          - Schedule regular error review meetings
+          
+          ---
+          *Generated by Error Trend Analysis*
+            `;
+            
+            fs.writeFileSync('error-trend-report.md', markdown.trim());
+            console.log('📈 Generated error trend report');
+          }
+          
+          generateTrendReport();
+          EOF
+          
+          node trend-analysis.js
+
+      - name: Upload trend report
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-trend-report
+          path: error-trend-report.md
+          retention-days: 30
+
+      - name: Send daily error summary
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#monitoring",
+              "username": "Error Trends",
+              "icon_emoji": ":chart_with_upwards_trend:",
+              "text": "Daily Error Analysis Summary",
+              "attachments": [
+                {
+                  "color": "good",
+                  "title": "📊 Daily Error Tracking Summary",
+                  "text": "Comprehensive error analysis and trend report",
+                  "fields": [
+                    {
+                      "title": "Analysis Date",
+                      "value": "'$(date +%Y-%m-%d)'",
+                      "short": true
+                    },
+                    {
+                      "title": "Monitoring Status",
+                      "value": "✅ Active",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "View Error Report",
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ],
+                  "footer": "Error Tracking System"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

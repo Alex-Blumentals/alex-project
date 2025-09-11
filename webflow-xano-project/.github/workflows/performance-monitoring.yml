@@ -1,0 +1,669 @@
+name: Performance Monitoring
+
+on:
+  schedule:
+    # Every 6 hours
+    - cron: '0 */6 * * *'
+    # Daily comprehensive report
+    - cron: '0 9 * * *'
+    # Weekly detailed analysis  
+    - cron: '0 9 * * 1'
+  
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to monitor'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - both
+      run_type:
+        description: 'Type of performance check'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - comprehensive
+          - mobile
+          - desktop
+
+jobs:
+  lighthouse-performance:
+    name: Lighthouse Performance Audit
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        device: ${{ github.event.inputs.run_type == 'mobile' && fromJson('["mobile"]') || github.event.inputs.run_type == 'desktop' && fromJson('["desktop"]') || fromJson('["desktop", "mobile"]') }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install lighthouse chrome-launcher puppeteer
+
+      - name: Run Lighthouse performance audit
+        id: lighthouse
+        run: |
+          cat > lighthouse-runner.js << 'EOF'
+          const lighthouse = require('lighthouse');
+          const chromeLauncher = require('chrome-launcher');
+          
+          const device = process.argv[2] || 'desktop';
+          const environment = process.argv[3] || 'both';
+          
+          const urls = [];
+          if (environment === 'production' || environment === 'both') {
+            urls.push({
+              url: process.env.WEBFLOW_PRODUCTION_URL || 'https://your-site.com',
+              name: 'Production Homepage',
+              environment: 'production'
+            });
+          }
+          if (environment === 'staging' || environment === 'both') {
+            urls.push({
+              url: process.env.WEBFLOW_STAGING_URL || 'https://staging.your-site.com',
+              name: 'Staging Homepage', 
+              environment: 'staging'
+            });
+          }
+          
+          const config = {
+            extends: 'lighthouse:default',
+            settings: {
+              formFactor: device,
+              screenEmulation: device === 'mobile' ? {
+                mobile: true,
+                width: 375,
+                height: 667,
+                deviceScaleFactor: 2,
+                disabled: false
+              } : {
+                mobile: false,
+                width: 1350,
+                height: 940,
+                deviceScaleFactor: 1,
+                disabled: false
+              },
+              throttling: device === 'mobile' ? {
+                rttMs: 150,
+                throughputKbps: 1600,
+                cpuSlowdownMultiplier: 4
+              } : {
+                rttMs: 40,
+                throughputKbps: 10240,
+                cpuSlowdownMultiplier: 1
+              }
+            }
+          };
+          
+          async function runLighthouse(urlConfig) {
+            console.log(`🔍 Auditing ${urlConfig.name} (${device})...`);
+            
+            const chrome = await chromeLauncher.launch({
+              chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            });
+            
+            try {
+              const options = {
+                logLevel: 'info',
+                output: 'json',
+                onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
+                port: chrome.port
+              };
+              
+              const runnerResult = await lighthouse(urlConfig.url, options, config);
+              const lhr = runnerResult.lhr;
+              
+              const result = {
+                url: lhr.finalUrl,
+                name: urlConfig.name,
+                environment: urlConfig.environment,
+                device: device,
+                timestamp: new Date().toISOString(),
+                scores: {
+                  performance: Math.round(lhr.categories.performance.score * 100),
+                  accessibility: Math.round(lhr.categories.accessibility.score * 100),
+                  bestPractices: Math.round(lhr.categories['best-practices'].score * 100),
+                  seo: Math.round(lhr.categories.seo.score * 100)
+                },
+                metrics: {
+                  firstContentfulPaint: lhr.audits['first-contentful-paint']?.numericValue || 0,
+                  largestContentfulPaint: lhr.audits['largest-contentful-paint']?.numericValue || 0,
+                  cumulativeLayoutShift: lhr.audits['cumulative-layout-shift']?.numericValue || 0,
+                  timeToInteractive: lhr.audits['interactive']?.numericValue || 0,
+                  speedIndex: lhr.audits['speed-index']?.numericValue || 0,
+                  totalBlockingTime: lhr.audits['total-blocking-time']?.numericValue || 0
+                },
+                opportunities: []
+              };
+              
+              // Extract top opportunities
+              Object.entries(lhr.audits).forEach(([auditId, audit]) => {
+                if (audit.details && audit.details.type === 'opportunity' && audit.numericValue > 0) {
+                  result.opportunities.push({
+                    id: auditId,
+                    title: audit.title,
+                    potential: Math.round(audit.numericValue),
+                    displayValue: audit.displayValue
+                  });
+                }
+              });
+              
+              result.opportunities.sort((a, b) => b.potential - a.potential);
+              result.opportunities = result.opportunities.slice(0, 5); // Top 5
+              
+              return result;
+              
+            } finally {
+              await chrome.kill();
+            }
+          }
+          
+          async function runAllAudits() {
+            const results = {
+              device: device,
+              timestamp: new Date().toISOString(),
+              audits: [],
+              summary: {
+                totalAudits: 0,
+                averagePerformance: 0,
+                averageAccessibility: 0,
+                issues: []
+              }
+            };
+            
+            for (const urlConfig of urls) {
+              try {
+                const result = await runLighthouse(urlConfig);
+                results.audits.push(result);
+                
+                console.log(`✅ ${result.name}:`);
+                console.log(`   Performance: ${result.scores.performance}/100`);
+                console.log(`   Accessibility: ${result.scores.accessibility}/100`);
+                console.log(`   Best Practices: ${result.scores.bestPractices}/100`);
+                console.log(`   SEO: ${result.scores.seo}/100`);
+                console.log(`   FCP: ${Math.round(result.metrics.firstContentfulPaint)}ms`);
+                console.log(`   LCP: ${Math.round(result.metrics.largestContentfulPaint)}ms`);
+                console.log(`   CLS: ${result.metrics.cumulativeLayoutShift.toFixed(3)}`);
+                
+              } catch (error) {
+                console.error(`❌ Failed to audit ${urlConfig.name}:`, error.message);
+                results.audits.push({
+                  name: urlConfig.name,
+                  environment: urlConfig.environment,
+                  error: error.message,
+                  status: 'error'
+                });
+              }
+            }
+            
+            // Calculate summary
+            const validAudits = results.audits.filter(a => !a.error);
+            results.summary.totalAudits = validAudits.length;
+            
+            if (validAudits.length > 0) {
+              results.summary.averagePerformance = Math.round(
+                validAudits.reduce((sum, a) => sum + a.scores.performance, 0) / validAudits.length
+              );
+              results.summary.averageAccessibility = Math.round(
+                validAudits.reduce((sum, a) => sum + a.scores.accessibility, 0) / validAudits.length
+              );
+              
+              // Check for performance issues
+              validAudits.forEach(audit => {
+                if (audit.scores.performance < 80) {
+                  results.summary.issues.push(`${audit.name}: Low performance score (${audit.scores.performance})`);
+                }
+                if (audit.metrics.largestContentfulPaint > 2500) {
+                  results.summary.issues.push(`${audit.name}: High LCP (${Math.round(audit.metrics.largestContentfulPaint)}ms)`);
+                }
+                if (audit.metrics.cumulativeLayoutShift > 0.1) {
+                  results.summary.issues.push(`${audit.name}: High CLS (${audit.metrics.cumulativeLayoutShift.toFixed(3)})`);
+                }
+              });
+            }
+            
+            console.log(JSON.stringify(results, null, 2));
+            
+            // Set GitHub Actions outputs
+            console.log(`::set-output name=average_performance::${results.summary.averagePerformance}`);
+            console.log(`::set-output name=average_accessibility::${results.summary.averageAccessibility}`);
+            console.log(`::set-output name=total_audits::${results.summary.totalAudits}`);
+            console.log(`::set-output name=issues_count::${results.summary.issues.length}`);
+            console.log(`::set-output name=issues::${results.summary.issues.join('; ')}`);
+            
+            // Determine overall status
+            let status = 'good';
+            if (results.summary.issues.length > 3) {
+              status = 'poor';
+            } else if (results.summary.issues.length > 0) {
+              status = 'warning';
+            }
+            console.log(`::set-output name=status::${status}`);
+            
+            return results;
+          }
+          
+          runAllAudits().catch(error => {
+            console.error('Performance audit failed:', error);
+            console.log(`::set-output name=status::error`);
+            console.log(`::set-output name=error::${error.message}`);
+            process.exit(1);
+          });
+          EOF
+          
+          node lighthouse-runner.js ${{ matrix.device }} ${{ github.event.inputs.environment || 'production' }}
+        env:
+          WEBFLOW_PRODUCTION_URL: ${{ secrets.WEBFLOW_PRODUCTION_URL }}
+          WEBFLOW_STAGING_URL: ${{ secrets.WEBFLOW_STAGING_URL }}
+
+      - name: Upload performance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-${{ matrix.device }}
+          path: performance-report.json
+          retention-days: 30
+        continue-on-error: true
+
+      - name: Send performance alert
+        if: steps.lighthouse.outputs.status == 'poor' || steps.lighthouse.outputs.issues_count > 2
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#performance",
+              "username": "Performance Monitor",
+              "icon_emoji": ":chart_with_downwards_trend:",
+              "attachments": [
+                {
+                  "color": "${{ steps.lighthouse.outputs.status == 'poor' && 'danger' || 'warning' }}",
+                  "title": "${{ steps.lighthouse.outputs.status == 'poor' && '🔴 Performance Issues Detected' || '⚠️ Performance Warnings' }}",
+                  "text": "Website performance metrics are below acceptable thresholds",
+                  "fields": [
+                    {
+                      "title": "Device",
+                      "value": "${{ matrix.device }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Performance Score",
+                      "value": "${{ steps.lighthouse.outputs.average_performance }}/100",
+                      "short": true
+                    },
+                    {
+                      "title": "Accessibility Score", 
+                      "value": "${{ steps.lighthouse.outputs.average_accessibility }}/100",
+                      "short": true
+                    },
+                    {
+                      "title": "Issues Found",
+                      "value": "${{ steps.lighthouse.outputs.issues_count }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Issues Details",
+                      "value": "${{ steps.lighthouse.outputs.issues }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Performance Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  web-vitals-monitoring:
+    name: Web Vitals Monitoring
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install puppeteer
+
+      - name: Collect Web Vitals
+        id: web-vitals
+        run: |
+          cat > web-vitals-collector.js << 'EOF'
+          const puppeteer = require('puppeteer');
+          
+          async function collectWebVitals(url) {
+            console.log(`📊 Collecting Web Vitals for ${url}...`);
+            
+            const browser = await puppeteer.launch({
+              headless: true,
+              args: ['--no-sandbox', '--disable-dev-shm-usage']
+            });
+            
+            const page = await browser.newPage();
+            
+            // Set viewport
+            await page.setViewport({ width: 1366, height: 768 });
+            
+            // Collect performance metrics
+            const metrics = {};
+            
+            // Navigate to page
+            const navigationStart = Date.now();
+            await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+            const loadTime = Date.now() - navigationStart;
+            
+            // Get Web Vitals using browser APIs
+            const webVitals = await page.evaluate(() => {
+              return new Promise((resolve) => {
+                const vitals = {};
+                
+                // Get performance entries
+                const perfObserver = new PerformanceObserver((list) => {
+                  list.getEntries().forEach((entry) => {
+                    if (entry.entryType === 'navigation') {
+                      vitals.domContentLoaded = entry.domContentLoadedEventEnd - entry.fetchStart;
+                      vitals.loadComplete = entry.loadEventEnd - entry.fetchStart;
+                    }
+                  });
+                });
+                
+                perfObserver.observe({ entryTypes: ['navigation'] });
+                
+                // Get paint metrics
+                const paintEntries = performance.getEntriesByType('paint');
+                paintEntries.forEach(entry => {
+                  if (entry.name === 'first-contentful-paint') {
+                    vitals.firstContentfulPaint = entry.startTime;
+                  }
+                  if (entry.name === 'first-paint') {
+                    vitals.firstPaint = entry.startTime;
+                  }
+                });
+                
+                // Try to get LCP using PerformanceObserver
+                if ('PerformanceObserver' in window) {
+                  try {
+                    const lcpObserver = new PerformanceObserver((list) => {
+                      const entries = list.getEntries();
+                      const lastEntry = entries[entries.length - 1];
+                      vitals.largestContentfulPaint = lastEntry.startTime;
+                    });
+                    lcpObserver.observe({ entryTypes: ['largest-contentful-paint'] });
+                  } catch (e) {
+                    console.warn('LCP not supported');
+                  }
+                }
+                
+                // Get CLS using PerformanceObserver
+                let clsValue = 0;
+                try {
+                  const clsObserver = new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                      if (!entry.hadRecentInput) {
+                        clsValue += entry.value;
+                      }
+                    }
+                    vitals.cumulativeLayoutShift = clsValue;
+                  });
+                  clsObserver.observe({ entryTypes: ['layout-shift'] });
+                } catch (e) {
+                  console.warn('CLS not supported');
+                }
+                
+                // Get basic timing metrics
+                const timing = performance.timing;
+                vitals.timeToFirstByte = timing.responseStart - timing.fetchStart;
+                vitals.domInteractive = timing.domInteractive - timing.fetchStart;
+                
+                setTimeout(() => resolve(vitals), 3000);
+              });
+            });
+            
+            // Additional metrics from Puppeteer
+            const performanceMetrics = await page.metrics();
+            
+            await browser.close();
+            
+            return {
+              url: url,
+              timestamp: new Date().toISOString(),
+              loadTime: loadTime,
+              webVitals: webVitals,
+              metrics: performanceMetrics
+            };
+          }
+          
+          async function runWebVitalsCollection() {
+            const urls = [
+              process.env.WEBFLOW_PRODUCTION_URL || 'https://your-site.com'
+            ];
+            
+            if (process.env.WEBFLOW_STAGING_URL) {
+              urls.push(process.env.WEBFLOW_STAGING_URL);
+            }
+            
+            const results = [];
+            
+            for (const url of urls) {
+              try {
+                const result = await collectWebVitals(url);
+                results.push(result);
+                
+                console.log(`✅ Web Vitals for ${url}:`);
+                console.log(`   Load Time: ${result.loadTime}ms`);
+                console.log(`   FCP: ${Math.round(result.webVitals.firstContentfulPaint || 0)}ms`);
+                console.log(`   LCP: ${Math.round(result.webVitals.largestContentfulPaint || 0)}ms`);
+                console.log(`   CLS: ${(result.webVitals.cumulativeLayoutShift || 0).toFixed(3)}`);
+                console.log(`   TTFB: ${Math.round(result.webVitals.timeToFirstByte || 0)}ms`);
+                
+              } catch (error) {
+                console.error(`❌ Failed to collect Web Vitals for ${url}:`, error.message);
+                results.push({
+                  url: url,
+                  error: error.message,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            }
+            
+            // Calculate summary and alerts
+            const validResults = results.filter(r => !r.error);
+            let issues = [];
+            
+            validResults.forEach(result => {
+              const vitals = result.webVitals;
+              
+              if (vitals.firstContentfulPaint > 2000) {
+                issues.push(`${result.url}: High FCP (${Math.round(vitals.firstContentfulPaint)}ms)`);
+              }
+              if (vitals.largestContentfulPaint > 2500) {
+                issues.push(`${result.url}: High LCP (${Math.round(vitals.largestContentfulPaint)}ms)`);
+              }
+              if (vitals.cumulativeLayoutShift > 0.1) {
+                issues.push(`${result.url}: High CLS (${vitals.cumulativeLayoutShift.toFixed(3)})`);
+              }
+              if (result.loadTime > 5000) {
+                issues.push(`${result.url}: Slow load time (${result.loadTime}ms)`);
+              }
+            });
+            
+            console.log(`::set-output name=total_sites::${validResults.length}`);
+            console.log(`::set-output name=issues_count::${issues.length}`);
+            console.log(`::set-output name=issues::${issues.join('; ')}`);
+            
+            const status = issues.length > 2 ? 'poor' : issues.length > 0 ? 'warning' : 'good';
+            console.log(`::set-output name=status::${status}`);
+            
+            console.log(JSON.stringify({ results, issues }, null, 2));
+            
+            return results;
+          }
+          
+          runWebVitalsCollection().catch(error => {
+            console.error('Web Vitals collection failed:', error);
+            console.log(`::set-output name=status::error`);
+            process.exit(1);
+          });
+          EOF
+          
+          node web-vitals-collector.js
+        env:
+          WEBFLOW_PRODUCTION_URL: ${{ secrets.WEBFLOW_PRODUCTION_URL }}
+          WEBFLOW_STAGING_URL: ${{ secrets.WEBFLOW_STAGING_URL }}
+
+      - name: Send Web Vitals alert
+        if: steps.web-vitals.outputs.status == 'poor'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#performance",
+              "username": "Web Vitals Monitor",
+              "icon_emoji": ":stopwatch:",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "title": "⚠️ Web Vitals Issues Detected",
+                  "text": "Core Web Vitals metrics are failing Google's thresholds",
+                  "fields": [
+                    {
+                      "title": "Sites Monitored",
+                      "value": "${{ steps.web-vitals.outputs.total_sites }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Issues Found",
+                      "value": "${{ steps.web-vitals.outputs.issues_count }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Issues Details",
+                      "value": "${{ steps.web-vitals.outputs.issues }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Web Vitals Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  performance-report:
+    name: Performance Report
+    runs-on: ubuntu-latest
+    needs: [lighthouse-performance, web-vitals-monitoring]
+    if: always() && github.event.schedule == '0 9 * * *'
+    
+    steps:
+      - name: Generate performance summary
+        run: |
+          cat > performance-summary.md << 'EOF'
+          # 📈 Daily Performance Report
+          
+          **Date:** $(date +%Y-%m-%d)
+          **Generated:** $(date)
+          
+          ## 🎯 Performance Summary
+          
+          ### Lighthouse Audits
+          - **Desktop Performance:** Average scores across all pages
+          - **Mobile Performance:** Core Web Vitals optimization
+          - **Accessibility:** WCAG compliance status
+          - **SEO:** Search engine optimization metrics
+          
+          ### Web Vitals Status
+          - **First Contentful Paint (FCP):** Target < 1.8s
+          - **Largest Contentful Paint (LCP):** Target < 2.5s  
+          - **Cumulative Layout Shift (CLS):** Target < 0.1
+          - **Time to First Byte (TTFB):** Target < 600ms
+          
+          ## 📊 Key Metrics
+          - **Overall Performance Score:** Based on Lighthouse audits
+          - **Core Web Vitals Status:** Pass/Fail for Google thresholds
+          - **Page Load Speed:** End-to-end load times
+          - **Resource Optimization:** Image, CSS, JS optimization status
+          
+          ## 🔧 Recommendations
+          1. **Optimize Images:** Use next-gen formats (WebP, AVIF)
+          2. **Minimize JavaScript:** Remove unused code and optimize bundles
+          3. **Improve Caching:** Implement better caching strategies
+          4. **Reduce Layout Shifts:** Specify dimensions for images and ads
+          5. **Optimize Fonts:** Use font-display: swap for custom fonts
+          
+          ## 📅 Next Steps
+          - Monitor performance trends over time
+          - Address critical performance issues
+          - Test performance impact of new changes
+          - Regular performance audits and optimization
+          
+          ---
+          *Generated by Performance Monitoring System*
+          EOF
+
+      - name: Upload performance summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-summary
+          path: performance-summary.md
+          retention-days: 30
+
+      - name: Send daily performance summary
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#performance",
+              "username": "Performance Report",
+              "icon_emoji": ":chart_with_upwards_trend:",
+              "text": "Daily Performance Monitoring Report",
+              "attachments": [
+                {
+                  "color": "good",
+                  "title": "📈 Daily Performance Report",
+                  "text": "Comprehensive performance analysis completed",
+                  "fields": [
+                    {
+                      "title": "Report Date",
+                      "value": "'$(date +%Y-%m-%d)'",
+                      "short": true
+                    },
+                    {
+                      "title": "Monitoring Status",
+                      "value": "✅ Active",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "View Full Report",
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ],
+                  "footer": "Performance Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

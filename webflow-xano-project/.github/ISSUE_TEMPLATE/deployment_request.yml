@@ -1,0 +1,283 @@
+name: 🚀 Deployment Request
+description: Request a deployment to staging or production environments
+title: "[DEPLOY] "
+labels: ["deployment", "ops", "needs-approval"]
+assignees:
+  - Alex-Blumentals
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to request a deployment to staging or production environments. 
+        
+        **Note**: Most deployments should be handled automatically through the CI/CD pipeline. Use this for special cases, rollbacks, or when the automated process needs intervention.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-deployment Checklist
+      description: Confirm these items before requesting deployment
+      options:
+        - label: All tests are passing on the target branch
+          required: true
+        - label: Code has been reviewed and approved
+          required: true
+        - label: Deployment has been tested in lower environment (if applicable)
+          required: true
+        - label: Stakeholders have been notified of the deployment
+          required: true
+        - label: Rollback plan is prepared and understood
+          required: true
+
+  - type: dropdown
+    id: deployment_type
+    attributes:
+      label: Deployment Type
+      description: What type of deployment is this?
+      options:
+        - Regular Release - Standard deployment of new features/fixes
+        - Hotfix - Emergency fix deployment
+        - Rollback - Reverting to previous version
+        - Infrastructure Change - Configuration or infrastructure update
+        - Manual Override - Bypassing automated deployment
+        - Maintenance - Scheduled maintenance deployment
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target_environment
+    attributes:
+      label: Target Environment
+      description: Which environment should be deployed to?
+      options:
+        - Staging
+        - Production
+        - Both (Staging first, then Production)
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency Level
+      description: How urgent is this deployment?
+      options:
+        - 🚨 Emergency - Deploy immediately (production issue)
+        - 🔴 High - Deploy within 2 hours (critical business need)
+        - 🟠 Medium - Deploy within 24 hours (important feature)
+        - 🟡 Normal - Deploy in next scheduled window
+        - 🟢 Low - Deploy when convenient
+      default: 3
+    validations:
+      required: true
+
+  - type: input
+    id: source_branch
+    attributes:
+      label: Source Branch
+      description: Which branch/commit should be deployed?
+      placeholder: main, develop, hotfix/issue-123, commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: target_version
+    attributes:
+      label: Target Version
+      description: Version number or tag (if applicable)
+      placeholder: v1.2.3, 2024.01.15, etc.
+
+  - type: textarea
+    id: changes_included
+    attributes:
+      label: Changes Included
+      description: What changes are included in this deployment?
+      placeholder: |
+        - Feature: Added user authentication system
+        - Bug fix: Fixed payment processing issue
+        - Enhancement: Improved page load performance
+        - Security: Updated dependencies with security patches
+    validations:
+      required: true
+
+  - type: textarea
+    id: deployment_reason
+    attributes:
+      label: Deployment Reason
+      description: Why is this deployment needed? Why now?
+      placeholder: |
+        Explain the business or technical reason for this deployment.
+        Include any context that would help with approval and timing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing_completed
+    attributes:
+      label: Testing Completed
+      description: What testing has been performed?
+      placeholder: |
+        - [ ] Unit tests passing
+        - [ ] Integration tests passing
+        - [ ] Manual testing completed
+        - [ ] Performance testing completed
+        - [ ] Security testing completed
+        - [ ] User acceptance testing completed
+        - [ ] Staging environment tested
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback_plan
+    attributes:
+      label: Rollback Plan
+      description: Detailed rollback procedure if deployment fails
+      placeholder: |
+        1. Identify rollback trigger conditions
+        2. Steps to revert to previous version
+        3. Database rollback procedures (if applicable)
+        4. Expected rollback time
+        5. How to verify rollback success
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk_assessment
+    attributes:
+      label: Risk Assessment
+      description: Potential risks and mitigation strategies
+      placeholder: |
+        **High Risk Items:**
+        - Database schema changes: Mitigated by backup and rollback scripts
+        - API changes: Mitigated by backward compatibility
+        
+        **Medium Risk Items:**
+        - Performance impact: Monitored by performance tests
+        
+        **Low Risk Items:**
+        - UI changes: Limited impact, easy to revert
+
+  - type: input
+    id: maintenance_window
+    attributes:
+      label: Preferred Maintenance Window
+      description: When should this deployment occur?
+      placeholder: "YYYY-MM-DD HH:MM UTC or 'ASAP' or 'Next business hours'"
+
+  - type: input
+    id: estimated_downtime
+    attributes:
+      label: Estimated Downtime
+      description: Expected downtime duration
+      placeholder: "0 minutes (zero-downtime), 5 minutes, 30 minutes, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies & Prerequisites
+      description: Any dependencies or prerequisites for this deployment
+      placeholder: |
+        - Requires database migration (estimated time: X minutes)
+        - Depends on infrastructure changes
+        - Requires third-party service configuration
+        - Needs DNS changes
+        - Requires manual configuration steps
+
+  - type: textarea
+    id: verification_steps
+    attributes:
+      label: Post-Deployment Verification
+      description: How to verify the deployment was successful
+      placeholder: |
+        1. Check application health endpoints
+        2. Verify key user journeys work correctly
+        3. Check error rates and performance metrics
+        4. Validate Webflow site functionality
+        5. Test Xano API endpoints
+        6. Confirm authentication works
+        7. Verify data synchronization
+
+  - type: textarea
+    id: communication_plan
+    attributes:
+      label: Communication Plan
+      description: Who needs to be notified and when?
+      placeholder: |
+        **Before Deployment:**
+        - Team notification 24h in advance
+        - Stakeholder notification
+        
+        **During Deployment:**
+        - Real-time updates in Slack
+        - Status page updates (if applicable)
+        
+        **After Deployment:**
+        - Success confirmation to stakeholders
+        - Summary report to team
+
+  - type: checkboxes
+    id: environment_checks
+    attributes:
+      label: Environment Readiness
+      description: Confirm the target environment is ready
+      options:
+        - label: Webflow environment is accessible and configured
+        - label: Xano environment is accessible and configured
+        - label: All required secrets and environment variables are set
+        - label: Database backups are current and verified
+        - label: Monitoring and alerting are functioning
+        - label: Load balancers and CDN are configured correctly
+
+  - type: textarea
+    id: additional_notes
+    attributes:
+      label: Additional Notes
+      description: Any other relevant information for the deployment
+      placeholder: |
+        - Special instructions for the deployment team
+        - Known issues or workarounds
+        - Contact information for subject matter experts
+        - Links to relevant documentation
+        - Previous deployment lessons learned
+
+  - type: dropdown
+    id: approval_required
+    attributes:
+      label: Approval Required From
+      description: Who needs to approve this deployment?
+      options:
+        - Technical Lead Only
+        - Product Owner
+        - Both Technical Lead and Product Owner
+        - Full Team Review
+        - Emergency Approval (explain in notes)
+      default: 1
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: compliance
+    attributes:
+      label: Compliance & Documentation
+      description: Regulatory or compliance requirements
+      options:
+        - label: Change management documentation completed
+        - label: Security review completed (if required)
+        - label: Compliance requirements satisfied
+        - label: Audit trail documented
+        - label: Risk assessment approved
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        
+        **For Emergency Deployments:** If this is an emergency deployment, please also:
+        1. Contact the team immediately via Slack/phone
+        2. Consider creating a separate incident issue
+        3. Document the emergency justification above
+        4. Be prepared to stay available during and after deployment

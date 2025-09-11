@@ -1,0 +1,325 @@
+name: 🚨 Emergency Hotfix
+description: Report a critical production issue requiring immediate hotfix
+title: "[EMERGENCY] "
+labels: ["emergency", "hotfix", "critical", "production"]
+assignees:
+  - Alex-Blumentals
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # 🚨 EMERGENCY HOTFIX REQUEST 🚨
+        
+        **Use this template ONLY for critical production issues that require immediate attention.**
+        
+        For non-critical issues, please use the Bug Report template instead.
+        
+        **Emergency Criteria:**
+        - Production system is down or severely impacted
+        - Data loss or corruption is occurring
+        - Security breach or vulnerability is being exploited  
+        - Critical business operations are blocked
+        - Revenue-generating features are broken
+
+  - type: checkboxes
+    id: emergency_confirmation
+    attributes:
+      label: Emergency Confirmation
+      description: Confirm this meets emergency criteria
+      options:
+        - label: "⚠️ I confirm this is a genuine emergency that meets the criteria above"
+          required: true
+        - label: "📞 I have notified the team via emergency communication channels"
+          required: true
+        - label: "🔍 I have performed initial troubleshooting to confirm the scope"
+          required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity Level
+      description: How severe is this emergency?
+      options:
+        - 💥 SEV1 - Complete system outage, all users affected
+        - 🔥 SEV2 - Major functionality broken, many users affected  
+        - ⚠️ SEV3 - Important feature broken, some users affected
+        - 🚨 SEV4 - Security issue requiring immediate patch
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected_environment
+    attributes:
+      label: Affected Environment
+      description: Which environment is experiencing the emergency?
+      options:
+        - Production Only
+        - Production + Staging
+        - All Environments
+        - Production + Suspected in others
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue_summary
+    attributes:
+      label: Emergency Issue Summary
+      description: Brief, clear description of the critical issue
+      placeholder: |
+        In 1-2 sentences, describe:
+        - What is broken or not working
+        - What the impact is on users/business
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_impact
+    attributes:
+      label: User Impact
+      description: How are users affected right now?
+      placeholder: |
+        - How many users are affected?
+        - What can't users do?
+        - What error messages are they seeing?
+        - Any data loss or corruption?
+    validations:
+      required: true
+
+  - type: textarea
+    id: business_impact
+    attributes:
+      label: Business Impact
+      description: What's the business impact?
+      placeholder: |
+        - Revenue loss estimate (if applicable)
+        - Critical business processes blocked
+        - SLA violations
+        - Reputation/customer satisfaction impact
+        - Regulatory/compliance implications
+    validations:
+      required: true
+
+  - type: input
+    id: when_started
+    attributes:
+      label: When Did This Start?
+      description: When was this issue first detected?
+      placeholder: "YYYY-MM-DD HH:MM UTC or 'X minutes ago'"
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_messages
+    attributes:
+      label: Error Messages/Symptoms
+      description: Specific error messages or symptoms observed
+      placeholder: |
+        Include:
+        - Exact error messages
+        - HTTP status codes
+        - Console errors
+        - Server log entries
+        - Monitoring alerts
+        
+        ```
+        Paste error messages and logs here
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_components
+    attributes:
+      label: Affected Components
+      description: Which parts of the system are affected?
+      placeholder: |
+        Check all that apply and provide details:
+        - [ ] Webflow frontend/CMS
+        - [ ] Xano backend/API
+        - [ ] Authentication system
+        - [ ] Data synchronization
+        - [ ] Payment processing
+        - [ ] Third-party integrations
+        - [ ] Database
+        - [ ] Infrastructure/hosting
+    validations:
+      required: true
+
+  - type: textarea
+    id: recent_changes
+    attributes:
+      label: Recent Changes
+      description: What changed recently that might be related?
+      placeholder: |
+        - Recent deployments (last 24-48 hours)
+        - Configuration changes
+        - Third-party service updates
+        - Infrastructure changes
+        - Data migrations
+        
+        Include timestamps and change details.
+    validations:
+      required: true
+
+  - type: textarea
+    id: troubleshooting_done
+    attributes:
+      label: Initial Troubleshooting Completed
+      description: What troubleshooting steps have already been attempted?
+      placeholder: |
+        - [ ] Checked application logs
+        - [ ] Verified service status
+        - [ ] Tested from multiple locations/devices
+        - [ ] Checked third-party service status
+        - [ ] Reviewed recent deployments
+        - [ ] Attempted service restart
+        - [ ] Other: [describe]
+    validations:
+      required: true
+
+  - type: textarea
+    id: suspected_cause
+    attributes:
+      label: Suspected Root Cause
+      description: What do you think might be causing this?
+      placeholder: |
+        Based on initial investigation:
+        - Most likely cause
+        - Evidence supporting this theory
+        - Alternative theories
+        - What needs to be investigated further
+
+  - type: textarea
+    id: temporary_workaround
+    attributes:
+      label: Temporary Workaround
+      description: Any temporary fixes or workarounds identified?
+      placeholder: |
+        - Is there a temporary workaround available?
+        - How can users mitigate the impact?
+        - What manual processes can be used?
+        - Estimated effort to implement workaround
+
+  - type: dropdown
+    id: escalation_needed
+    attributes:
+      label: Escalation Required
+      description: What level of escalation is needed?
+      options:
+        - Development Team Only
+        - + Infrastructure/DevOps Team  
+        - + Product/Business Stakeholders
+        - + External Vendors/Support
+        - + Executive Leadership
+        - + Customer Communication
+      default: 1
+    validations:
+      required: true
+
+  - type: textarea
+    id: immediate_actions
+    attributes:
+      label: Immediate Actions Needed
+      description: What actions need to be taken right now?
+      placeholder: |
+        Priority order:
+        1. [Immediate action 1]
+        2. [Immediate action 2] 
+        3. [Follow-up action 1]
+        
+        Include who should do what and estimated timeframes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback_options
+    attributes:
+      label: Rollback Options
+      description: Can we rollback to resolve this issue?
+      placeholder: |
+        - Is rollback possible and safe?
+        - What would be rolled back? (code, config, data)
+        - Estimated rollback time
+        - Risks of rollback
+        - Would rollback fully resolve the issue?
+
+  - type: input
+    id: contact_info
+    attributes:
+      label: Primary Contact
+      description: Who is the primary contact for this emergency?
+      placeholder: "Name, phone number, and best way to reach immediately"
+    validations:
+      required: true
+
+  - type: textarea
+    id: monitoring_data
+    attributes:
+      label: Monitoring/Metrics Data
+      description: Relevant monitoring data or metrics
+      placeholder: |
+        - Error rates, response times, throughput
+        - Infrastructure metrics (CPU, memory, disk)
+        - Database performance
+        - Third-party service status
+        - Links to dashboards or monitoring tools
+
+  - type: checkboxes
+    id: communication_status
+    attributes:
+      label: Communication Status
+      description: Communication actions taken
+      options:
+        - label: Emergency team has been notified
+        - label: Stakeholders have been alerted
+        - label: Customer support team has been briefed
+        - label: Status page has been updated (if applicable)
+        - label: Social media/public communication prepared (if needed)
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Resolution Success Criteria
+      description: How will we know this is resolved?
+      placeholder: |
+        - Specific metrics or behaviors that must return to normal
+        - User actions that must work correctly
+        - Error rates that must be achieved
+        - Performance benchmarks that must be met
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        
+        ## 📋 Emergency Response Checklist
+        
+        **Immediate Actions (0-15 minutes):**
+        - [ ] Emergency team notified
+        - [ ] Initial impact assessment completed
+        - [ ] Monitoring and alerting verified
+        - [ ] Communication channels established
+        
+        **Short-term Actions (15-60 minutes):**
+        - [ ] Root cause investigation started
+        - [ ] Workaround evaluation
+        - [ ] Rollback options assessed
+        - [ ] Stakeholder communication sent
+        
+        **Ongoing Actions:**
+        - [ ] Regular status updates provided
+        - [ ] Progress tracked and documented
+        - [ ] Post-incident review scheduled
+        
+        ---
+        
+        **⚠️ After creating this issue:**
+        1. **Immediately notify the team** via emergency communication channels
+        2. **Stay available** for real-time collaboration
+        3. **Update this issue** with progress and findings
+        4. **Don't work alone** - get other team members involved
+        5. **Document everything** for post-incident review

@@ -1,0 +1,51 @@
+{
+  "name": "webflow-xano-project",
+  "version": "1.0.0",
+  "description": "Full-stack project with Webflow frontend and Xano backend",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run webflow:dev\" \"npm run xano:dev\"",
+    "webflow:dev": "node scripts/webflow-dev.js",
+    "webflow:build": "node scripts/webflow-build.js",
+    "webflow:deploy": "node scripts/webflow-deploy.js",
+    "xano:dev": "node scripts/xano-dev.js",
+    "xano:sync": "node scripts/xano-sync.js",
+    "build": "npm run webflow:build",
+    "deploy": "concurrently \"npm run webflow:deploy\" \"npm run xano:sync\"",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "lint": "eslint . --ext .js,.ts,.jsx,.tsx",
+    "lint:fix": "eslint . --ext .js,.ts,.jsx,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "webflow",
+    "xano",
+    "full-stack",
+    "no-code",
+    "low-code"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "concurrently": "^8.2.0",
+    "eslint": "^8.45.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.1.0",
+    "vitest": "^0.34.0",
+    "@vitest/ui": "^0.34.0"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "dotenv": "^16.3.0",
+    "webflow-api": "^2.0.0"
+  }
+}

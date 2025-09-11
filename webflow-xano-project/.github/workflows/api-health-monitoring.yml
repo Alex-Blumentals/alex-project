@@ -1,0 +1,620 @@
+name: API Health Monitoring
+
+on:
+  schedule:
+    # Every 5 minutes
+    - cron: '*/5 * * * *'
+    # Hourly detailed check
+    - cron: '0 * * * *'
+    # Daily comprehensive report  
+    - cron: '0 8 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to check'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - production
+          - staging
+          - development
+      alert_on_failure:
+        description: 'Send alerts on failure'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  api-health-check:
+    name: API Health Check
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        environment: ${{ github.event.inputs.environment == 'all' && fromJson('["production", "staging", "development"]') || fromJson(format('["{0}"]', github.event.inputs.environment || 'production')) }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install axios moment
+
+      - name: Run API health checks
+        id: health-check
+        run: |
+          cat > single-env-monitor.js << 'EOF'
+          const axios = require('axios');
+          
+          const environment = process.argv[2] || 'production';
+          const environments = {
+            development: {
+              baseUrl: process.env.XANO_DEV_URL || 'https://x8ki-letl-twmt.n7c.xano.io/api:v1',
+              name: 'Development',
+              webflowUrl: process.env.WEBFLOW_DEV_URL || 'https://dev-site.webflow.io'
+            },
+            staging: {
+              baseUrl: process.env.XANO_STAGING_URL || 'https://staging-workspace.xano.io/api:v1',
+              name: 'Staging',
+              webflowUrl: process.env.WEBFLOW_STAGING_URL || 'https://staging-site.webflow.io'
+            },
+            production: {
+              baseUrl: process.env.XANO_PRODUCTION_URL || 'https://production-workspace.xano.io/api:v1',
+              name: 'Production',
+              webflowUrl: process.env.WEBFLOW_PRODUCTION_URL || 'https://your-site.com'
+            }
+          };
+          
+          const config = environments[environment];
+          if (!config) {
+            console.error(`Unknown environment: ${environment}`);
+            process.exit(1);
+          }
+          
+          const endpoints = [
+            { path: '/health', method: 'GET', critical: true, name: 'Health Check', timeout: 5000 },
+            { path: '/auth/me', method: 'GET', critical: true, name: 'Authentication', timeout: 5000 },
+            { path: '/db/ping', method: 'GET', critical: true, name: 'Database', timeout: 5000 },
+            { path: '/api/status', method: 'GET', critical: false, name: 'API Status', timeout: 3000 }
+          ];
+          
+          async function checkEndpoint(baseUrl, endpoint) {
+            const startTime = Date.now();
+            const url = `${baseUrl}${endpoint.path}`;
+            
+            try {
+              const response = await axios({
+                url: url,
+                method: endpoint.method,
+                timeout: endpoint.timeout,
+                headers: {
+                  'User-Agent': 'GitHub-Actions-Health-Monitor/1.0',
+                  'Accept': 'application/json'
+                },
+                validateStatus: (status) => status < 500
+              });
+              
+              const responseTime = Date.now() - startTime;
+              
+              return {
+                endpoint: endpoint.path,
+                name: endpoint.name,
+                status: response.status < 400 ? 'healthy' : 'unhealthy',
+                statusCode: response.status,
+                responseTime: responseTime,
+                critical: endpoint.critical,
+                error: response.status >= 400 ? `HTTP ${response.status}` : null
+              };
+              
+            } catch (error) {
+              const responseTime = Date.now() - startTime;
+              
+              return {
+                endpoint: endpoint.path,
+                name: endpoint.name,
+                status: 'error',
+                statusCode: null,
+                responseTime: responseTime,
+                critical: endpoint.critical,
+                error: error.code || error.message
+              };
+            }
+          }
+          
+          async function checkWebflowSite(url) {
+            const startTime = Date.now();
+            
+            try {
+              const response = await axios({
+                url: url,
+                method: 'GET',
+                timeout: 10000,
+                headers: {
+                  'User-Agent': 'GitHub-Actions-Health-Monitor/1.0'
+                }
+              });
+              
+              const responseTime = Date.now() - startTime;
+              
+              return {
+                name: 'Webflow Site',
+                status: 'healthy',
+                statusCode: response.status,
+                responseTime: responseTime,
+                critical: true
+              };
+              
+            } catch (error) {
+              const responseTime = Date.now() - startTime;
+              
+              return {
+                name: 'Webflow Site',
+                status: 'error',
+                statusCode: error.response?.status || null,
+                responseTime: responseTime,
+                critical: true,
+                error: error.code || error.message
+              };
+            }
+          }
+          
+          async function runHealthChecks() {
+            console.log(`🔍 Running health checks for ${config.name} environment...`);
+            
+            const results = {
+              environment: environment,
+              timestamp: new Date().toISOString(),
+              baseUrl: config.baseUrl,
+              webflowUrl: config.webflowUrl,
+              checks: []
+            };
+            
+            // Check Xano API endpoints
+            console.log('Checking Xano API endpoints...');
+            for (const endpoint of endpoints) {
+              console.log(`  Checking ${endpoint.name}...`);
+              const result = await checkEndpoint(config.baseUrl, endpoint);
+              results.checks.push(result);
+              
+              if (result.status !== 'healthy') {
+                console.log(`    ❌ ${result.name}: ${result.error || 'Unhealthy'} (${result.responseTime}ms)`);
+              } else {
+                console.log(`    ✅ ${result.name}: OK (${result.responseTime}ms)`);
+              }
+            }
+            
+            // Check Webflow site
+            console.log('Checking Webflow site...');
+            const webflowResult = await checkWebflowSite(config.webflowUrl);
+            results.checks.push(webflowResult);
+            
+            if (webflowResult.status !== 'healthy') {
+              console.log(`  ❌ ${webflowResult.name}: ${webflowResult.error || 'Unhealthy'} (${webflowResult.responseTime}ms)`);
+            } else {
+              console.log(`  ✅ ${webflowResult.name}: OK (${webflowResult.responseTime}ms)`);
+            }
+            
+            // Calculate summary
+            const healthyChecks = results.checks.filter(c => c.status === 'healthy').length;
+            const totalChecks = results.checks.length;
+            const criticalFailures = results.checks.filter(c => c.critical && c.status !== 'healthy').length;
+            const averageResponseTime = Math.round(
+              results.checks.reduce((sum, c) => sum + c.responseTime, 0) / totalChecks
+            );
+            
+            results.summary = {
+              healthy: healthyChecks,
+              total: totalChecks,
+              criticalFailures: criticalFailures,
+              averageResponseTime: averageResponseTime,
+              overallStatus: criticalFailures > 0 ? 'critical' : 
+                           healthyChecks === totalChecks ? 'healthy' : 'degraded'
+            };
+            
+            console.log(`\n📊 Summary for ${config.name}:`);
+            console.log(`Status: ${results.summary.overallStatus.toUpperCase()}`);
+            console.log(`Health checks: ${healthyChecks}/${totalChecks} passed`);
+            console.log(`Critical failures: ${criticalFailures}`);
+            console.log(`Average response time: ${averageResponseTime}ms`);
+            
+            // Output for GitHub Actions
+            console.log(`::set-output name=status::${results.summary.overallStatus}`);
+            console.log(`::set-output name=healthy::${healthyChecks}`);
+            console.log(`::set-output name=total::${totalChecks}`);
+            console.log(`::set-output name=critical_failures::${criticalFailures}`);
+            console.log(`::set-output name=average_response_time::${averageResponseTime}`);
+            console.log(`::set-output name=failed_checks::${results.checks.filter(c => c.status !== 'healthy').map(c => c.name).join(',')}`);
+            
+            // Save results
+            console.log(JSON.stringify(results, null, 2));
+            
+            return results;
+          }
+          
+          runHealthChecks().catch(error => {
+            console.error('Health check failed:', error);
+            console.log(`::set-output name=status::error`);
+            console.log(`::set-output name=error::${error.message}`);
+            process.exit(1);
+          });
+          EOF
+          
+          node single-env-monitor.js ${{ matrix.environment }} > health-results-${{ matrix.environment }}.json
+        env:
+          XANO_DEV_URL: ${{ secrets.XANO_DEV_URL }}
+          XANO_STAGING_URL: ${{ secrets.XANO_STAGING_URL }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+          WEBFLOW_DEV_URL: ${{ secrets.WEBFLOW_DEV_URL }}
+          WEBFLOW_STAGING_URL: ${{ secrets.WEBFLOW_STAGING_URL }}
+          WEBFLOW_PRODUCTION_URL: ${{ secrets.WEBFLOW_PRODUCTION_URL }}
+
+      - name: Upload health check results
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-results-${{ matrix.environment }}
+          path: health-results-${{ matrix.environment }}.json
+          retention-days: 7
+
+      - name: Send alert for critical failures
+        if: steps.health-check.outputs.status == 'critical' && (github.event.inputs.alert_on_failure != 'false')
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "${{ matrix.environment == 'production' && '#alerts' || '#monitoring' }}",
+              "username": "Health Monitor",
+              "icon_emoji": ":rotating_light:",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "title": "🚨 Critical Health Check Failure",
+                  "text": "Critical services are down in ${{ matrix.environment }} environment",
+                  "fields": [
+                    {
+                      "title": "Environment",
+                      "value": "${{ matrix.environment }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Health Status",
+                      "value": "${{ steps.health-check.outputs.healthy }}/${{ steps.health-check.outputs.total }} checks passed",
+                      "short": true
+                    },
+                    {
+                      "title": "Critical Failures",
+                      "value": "${{ steps.health-check.outputs.critical_failures }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Average Response Time",
+                      "value": "${{ steps.health-check.outputs.average_response_time }}ms",
+                      "short": true
+                    },
+                    {
+                      "title": "Failed Services",
+                      "value": "${{ steps.health-check.outputs.failed_checks }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Health Monitor",
+                  "ts": ${{ github.event.repository.updated_at }}
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create incident for production critical failures
+        if: steps.health-check.outputs.status == 'critical' && matrix.environment == 'production'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failedChecks = '${{ steps.health-check.outputs.failed_checks }}';
+            const criticalFailures = '${{ steps.health-check.outputs.critical_failures }}';
+            
+            if (criticalFailures > 0) {
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 INCIDENT: Production API Health Check Failures`,
+                body: `
+                # 🚨 Production Health Check Incident
+                
+                **Incident Type:** API Health Check Failure
+                **Severity:** Critical
+                **Environment:** Production
+                **Time:** ${new Date().toISOString()}
+                
+                ## Incident Details
+                - **Failed Services:** ${failedChecks || 'Unknown'}
+                - **Critical Failures:** ${criticalFailures}
+                - **Total Checks:** ${{ steps.health-check.outputs.total }}
+                - **Healthy Checks:** ${{ steps.health-check.outputs.healthy }}
+                - **Average Response Time:** ${{ steps.health-check.outputs.average_response_time }}ms
+                
+                ## Impact Assessment
+                - [ ] **User Impact:** To be determined
+                - [ ] **Service Availability:** Critical services may be down
+                - [ ] **Data Integrity:** To be verified
+                - [ ] **Third-party Dependencies:** To be checked
+                
+                ## Immediate Actions
+                - [ ] Investigate failed health checks
+                - [ ] Check server and database status
+                - [ ] Verify network connectivity
+                - [ ] Contact Xano support if needed
+                - [ ] Monitor user reports and metrics
+                
+                ## Communication
+                - Alerts sent to #alerts channel
+                - On-call team notified
+                - Status page to be updated if needed
+                
+                ## Health Check Details
+                \`\`\`json
+                Failed Services: ${failedChecks}
+                Critical Failures: ${criticalFailures}
+                \`\`\`
+                
+                **Auto-generated by API Health Monitor**
+                `,
+                labels: ['incident', 'critical', 'api-health', 'production'],
+                assignees: ['Alex-Blumentals']
+              });
+              
+              console.log(`Created critical incident #${issue.data.number}`);
+            }
+
+      - name: Update status badge
+        if: matrix.environment == 'production'
+        run: |
+          STATUS="${{ steps.health-check.outputs.status }}"
+          
+          case "$STATUS" in
+            "healthy")
+              BADGE_COLOR="brightgreen"
+              BADGE_MESSAGE="All Systems Operational"
+              ;;
+            "degraded")
+              BADGE_COLOR="yellow"
+              BADGE_MESSAGE="Some Issues Detected"
+              ;;
+            "critical")
+              BADGE_COLOR="red"
+              BADGE_MESSAGE="Service Disruption"
+              ;;
+            *)
+              BADGE_COLOR="lightgrey"
+              BADGE_MESSAGE="Status Unknown"
+              ;;
+          esac
+          
+          # Create status badge URL
+          BADGE_URL="https://img.shields.io/badge/API_Health-${BADGE_MESSAGE// /%20}-${BADGE_COLOR}"
+          echo "Status Badge: $BADGE_URL"
+          
+          # If you have a status page, update it here
+          # curl -X POST "https://api.statuspage.io/..." -H "Authorization: OAuth ..." -d "..."
+
+  comprehensive-health-report:
+    name: Comprehensive Health Report
+    runs-on: ubuntu-latest
+    needs: api-health-check
+    if: always() && github.event.schedule == '0 8 * * *'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all health check results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: health-results-*
+          merge-multiple: true
+
+      - name: Generate comprehensive report
+        run: |
+          cat > generate-report.js << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          
+          function generateReport() {
+            const reportData = {
+              timestamp: new Date().toISOString(),
+              date: new Date().toISOString().split('T')[0],
+              environments: {},
+              summary: {
+                totalEnvironments: 0,
+                healthyEnvironments: 0,
+                degradedEnvironments: 0,
+                criticalEnvironments: 0,
+                overallStatus: 'unknown'
+              }
+            };
+            
+            // Read all health check result files
+            const files = fs.readdirSync('.').filter(f => f.startsWith('health-results-') && f.endsWith('.json'));
+            
+            for (const file of files) {
+              try {
+                const content = fs.readFileSync(file, 'utf8');
+                const data = JSON.parse(content);
+                const envName = file.replace('health-results-', '').replace('.json', '');
+                
+                reportData.environments[envName] = data;
+                reportData.summary.totalEnvironments++;
+                
+                switch (data.summary.overallStatus) {
+                  case 'healthy':
+                    reportData.summary.healthyEnvironments++;
+                    break;
+                  case 'degraded':
+                    reportData.summary.degradedEnvironments++;
+                    break;
+                  case 'critical':
+                    reportData.summary.criticalEnvironments++;
+                    break;
+                }
+              } catch (error) {
+                console.error(`Failed to parse ${file}:`, error.message);
+              }
+            }
+            
+            // Determine overall status
+            if (reportData.summary.criticalEnvironments > 0) {
+              reportData.summary.overallStatus = 'critical';
+            } else if (reportData.summary.degradedEnvironments > 0) {
+              reportData.summary.overallStatus = 'degraded';
+            } else if (reportData.summary.healthyEnvironments === reportData.summary.totalEnvironments) {
+              reportData.summary.overallStatus = 'healthy';
+            } else {
+              reportData.summary.overallStatus = 'unknown';
+            }
+            
+            return reportData;
+          }
+          
+          function generateMarkdownReport(data) {
+            let markdown = `# 🔍 Daily API Health Report\n\n`;
+            markdown += `**Date:** ${data.date}\n`;
+            markdown += `**Generated:** ${data.timestamp}\n`;
+            markdown += `**Overall Status:** ${data.summary.overallStatus.toUpperCase()}\n\n`;
+            
+            markdown += `## 📊 Environment Summary\n\n`;
+            markdown += `- **Total Environments:** ${data.summary.totalEnvironments}\n`;
+            markdown += `- **Healthy:** ${data.summary.healthyEnvironments} ✅\n`;
+            markdown += `- **Degraded:** ${data.summary.degradedEnvironments} ⚠️\n`;
+            markdown += `- **Critical:** ${data.summary.criticalEnvironments} ❌\n\n`;
+            
+            markdown += `## 🌍 Environment Details\n\n`;
+            
+            for (const [envName, envData] of Object.entries(data.environments)) {
+              const statusEmoji = {
+                'healthy': '✅',
+                'degraded': '⚠️',
+                'critical': '❌',
+                'error': '💥'
+              }[envData.summary.overallStatus] || '❓';
+              
+              markdown += `### ${statusEmoji} ${envData.environment.toUpperCase()} Environment\n\n`;
+              markdown += `- **Status:** ${envData.summary.overallStatus}\n`;
+              markdown += `- **Health Checks:** ${envData.summary.healthy}/${envData.summary.total} passed\n`;
+              markdown += `- **Critical Failures:** ${envData.summary.criticalFailures}\n`;
+              markdown += `- **Average Response Time:** ${envData.summary.averageResponseTime}ms\n`;
+              markdown += `- **Timestamp:** ${envData.timestamp}\n\n`;
+              
+              if (envData.checks && envData.checks.length > 0) {
+                markdown += `#### Service Details\n\n`;
+                markdown += `| Service | Status | Response Time | Error |\n`;
+                markdown += `|---------|--------|---------------|-------|\n`;
+                
+                for (const check of envData.checks) {
+                  const statusIcon = check.status === 'healthy' ? '✅' : '❌';
+                  const error = check.error || '-';
+                  markdown += `| ${check.name} | ${statusIcon} ${check.status} | ${check.responseTime}ms | ${error} |\n`;
+                }
+                
+                markdown += `\n`;
+              }
+            }
+            
+            markdown += `## 📈 Recommendations\n\n`;
+            
+            if (data.summary.criticalEnvironments > 0) {
+              markdown += `- 🚨 **URGENT:** Address critical failures immediately\n`;
+              markdown += `- 📞 Contact on-call team for incident response\n`;
+              markdown += `- 📊 Monitor user impact and service metrics\n`;
+            }
+            
+            if (data.summary.degradedEnvironments > 0) {
+              markdown += `- ⚠️ Investigate degraded services\n`;
+              markdown += `- 📈 Monitor performance trends\n`;
+              markdown += `- 🔧 Consider scaling or optimization\n`;
+            }
+            
+            if (data.summary.overallStatus === 'healthy') {
+              markdown += `- ✅ All systems operational\n`;
+              markdown += `- 📊 Continue monitoring trends\n`;
+              markdown += `- 🔄 Review and update health check thresholds\n`;
+            }
+            
+            markdown += `\n---\n\n`;
+            markdown += `*Generated by GitHub Actions API Health Monitor*\n`;
+            
+            return markdown;
+          }
+          
+          const reportData = generateReport();
+          const markdownReport = generateMarkdownReport(reportData);
+          
+          // Save reports
+          fs.writeFileSync('health-report.json', JSON.stringify(reportData, null, 2));
+          fs.writeFileSync('health-report.md', markdownReport);
+          
+          console.log('📄 Generated comprehensive health report');
+          console.log(`Overall Status: ${reportData.summary.overallStatus.toUpperCase()}`);
+          console.log(`Environments: ${reportData.summary.healthyEnvironments}/${reportData.summary.totalEnvironments} healthy`);
+          EOF
+          
+          node generate-report.js
+
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-health-report
+          path: |
+            health-report.json
+            health-report.md
+          retention-days: 30
+
+      - name: Send daily health summary
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#monitoring",
+              "username": "Daily Health Report",
+              "icon_emoji": ":chart_with_upwards_trend:",
+              "text": "Daily API Health Summary",
+              "attachments": [
+                {
+                  "color": "good",
+                  "title": "📊 Daily API Health Report",
+                  "text": "Comprehensive health status for all environments",
+                  "fields": [
+                    {
+                      "title": "Report Date",
+                      "value": "'$(date +%Y-%m-%d)'",
+                      "short": true
+                    },
+                    {
+                      "title": "Environments Monitored", 
+                      "value": "Production, Staging, Development",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "View Full Report",
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ],
+                  "footer": "API Health Monitor"
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

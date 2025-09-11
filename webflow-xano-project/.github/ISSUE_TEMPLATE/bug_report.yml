@@ -1,0 +1,184 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior in the application
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+assignees:
+  - Alex-Blumentals
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please provide as much detail as possible to help us reproduce and fix the issue.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      description: Please confirm you've completed these steps before submitting
+      options:
+        - label: I have searched existing issues to ensure this bug hasn't been reported
+          required: true
+        - label: I have reproduced this issue in the latest version
+          required: true
+        - label: I have checked that this isn't a configuration issue on my end
+          required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Which environment is affected?
+      options:
+        - Production
+        - Staging
+        - Development/Local
+        - Multiple Environments
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the application is affected?
+      options:
+        - Webflow Integration
+        - Xano API/Backend
+        - Authentication
+        - Data Synchronization
+        - Build/Deployment Pipeline
+        - Environment Configuration
+        - Security/Permissions
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - 🔴 Critical - Application is broken/unusable
+        - 🟠 High - Major feature broken, workaround available
+        - 🟡 Medium - Minor feature issue, functionality impacted
+        - 🟢 Low - Cosmetic issue, no functionality impact
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: Describe what happened and what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: A clear and concise description of what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: A clear and concise description of what actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots/Videos
+      description: If applicable, add screenshots or videos to help explain your problem
+      placeholder: Drag and drop images/videos here or paste URLs
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Messages/Logs
+      description: Any relevant error messages or log output
+      placeholder: |
+        Console errors, server logs, workflow failures, etc.
+        ```
+        Paste error messages here
+        ```
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: If web-related, which browser and version?
+      placeholder: Chrome 119.0.0.0, Safari 17.1, etc.
+
+  - type: input
+    id: device
+    attributes:
+      label: Device/OS
+      description: What device and operating system?
+      placeholder: iPhone 15 iOS 17.1, Windows 11, macOS Sonoma, etc.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem
+      placeholder: |
+        - When did this start happening?
+        - Does this happen consistently or intermittently?
+        - Any recent changes that might be related?
+        - Impact on users/business
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Any temporary workaround you've found
+      placeholder: Describe any temporary solution or workaround
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgently does this need to be fixed?
+      options:
+        - 🚨 Immediate - Blocking critical business operations
+        - ⏰ This Week - Should be fixed within a few days
+        - 📅 This Sprint - Should be included in current sprint
+        - 🔄 Backlog - Can be scheduled for future sprint
+      default: 2
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: assistance
+    attributes:
+      label: Assistance
+      description: How can you help with this issue?
+      options:
+        - label: I can provide additional testing
+        - label: I can help with reproducing the issue
+        - label: I have ideas for potential solutions
+        - label: I can test the fix once implemented
