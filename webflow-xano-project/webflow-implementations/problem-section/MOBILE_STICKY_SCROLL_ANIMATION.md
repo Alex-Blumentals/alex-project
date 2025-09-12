@@ -63,18 +63,7 @@ Add this CSS for mobile only (replace the existing mobile section in your CSS):
     height: 60%;
     top: 20%;
     z-index: 3;
-    background-image: url('your-infrastructure-image.jpg');
-  }
-  
-  .sticky-layer-1::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(to top, rgba(102, 126, 234, 0.8) 0%, rgba(102, 126, 234, 0.3) 70%, transparent 100%);
-    z-index: 1;
+    background: transparent; /* Remove background-image, using <img> instead */
   }
   
   /* Layer 2 - Escasez crítica (medium, appears second) */
@@ -83,18 +72,56 @@ Add this CSS for mobile only (replace the existing mobile section in your CSS):
     height: 70%;
     top: 15%;
     z-index: 4;
-    background-image: url('your-water-crisis-image.jpg');
+    background: transparent; /* Remove background-image, using <img> instead */
   }
   
-  .sticky-layer-2::before {
-    content: '';
+  /* Image styling for both layers */
+  .layer-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    z-index: 1;
+  }
+  
+  /* Image wrapper for Webflow images */
+  .layer-image-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  
+  .layer-image-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+  
+  /* Color overlays for each layer */
+  .layer-overlay {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
+    z-index: 2;
+  }
+  
+  .layer-overlay-blue,
+  .sticky-layer-1 .layer-overlay {
+    background: linear-gradient(to top, rgba(102, 126, 234, 0.8) 0%, rgba(102, 126, 234, 0.3) 70%, transparent 100%);
+  }
+  
+  .layer-overlay-red,
+  .sticky-layer-2 .layer-overlay {
     background: linear-gradient(to top, rgba(255, 107, 107, 0.8) 0%, rgba(255, 107, 107, 0.3) 70%, transparent 100%);
-    z-index: 1;
   }
   
   /* Layer 3 - Aquí está su inversión (largest, appears last) */
@@ -271,9 +298,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 ```
 
-## HTML Structure
+## HTML Structure with Images
 
-Your HTML should look like this:
+Your HTML should include actual image elements in each layer:
 
 ```html
 <div class="problema-section">
@@ -285,23 +312,27 @@ Your HTML should look like this:
   <!-- Mobile sticky scroll version -->
   <div class="mobile-sticky-container">
     <div class="sticky-viewport">
-      <!-- Layer 1 - Infrastructure boom -->
+      <!-- Layer 1 - Infrastructure boom with image -->
       <div class="sticky-layer sticky-layer-1">
+        <img src="your-infrastructure-boom-image.jpg" alt="Infrastructure Boom in Spain" class="layer-image" />
+        <div class="layer-overlay"></div>
         <div class="layer-content">
           <div class="layer-title">Boom de Infraestructura</div>
           <div class="layer-subtitle">España experimenta un crecimiento acelerado</div>
         </div>
       </div>
       
-      <!-- Layer 2 - Water crisis -->
+      <!-- Layer 2 - Water crisis with image -->
       <div class="sticky-layer sticky-layer-2">
+        <img src="your-water-crisis-image.jpg" alt="Water Crisis" class="layer-image" />
+        <div class="layer-overlay layer-overlay-red"></div>
         <div class="layer-content">
           <div class="layer-title">Escasez Crítica</div>
           <div class="layer-subtitle">Los recursos hídricos bajo presión extrema</div>
         </div>
       </div>
       
-      <!-- Layer 3 - Investment solution -->
+      <!-- Layer 3 - Investment solution (no background image, glass morphism) -->
       <div class="sticky-layer sticky-layer-3">
         <div class="collision-content">
           <div class="collision-title-mobile">Aquí está su inversión</div>
@@ -314,6 +345,68 @@ Your HTML should look like this:
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+```
+
+### Alternative: Using Webflow Image Elements
+
+If you're adding this through Webflow Designer, use this structure with Webflow image elements:
+
+```html
+<div class="problema-section">
+  <!-- Desktop version remains unchanged -->
+  <div class="split-panel-container">
+    <!-- Your existing desktop collision -->
+  </div>
+  
+  <!-- Mobile sticky version with Webflow images -->
+  <div class="mobile-sticky-container">
+    <div class="sticky-viewport">
+      
+      <!-- Layer 1 with Webflow image -->
+      <div class="sticky-layer sticky-layer-1">
+        <div class="w-embed">
+          <div class="layer-image-wrapper">
+            <!-- Add Webflow Image Element here with class "layer-image" -->
+          </div>
+        </div>
+        <div class="layer-overlay layer-overlay-blue"></div>
+        <div class="layer-content">
+          <h3 class="layer-title">Boom de Infraestructura</h3>
+          <p class="layer-subtitle">España experimenta un crecimiento acelerado</p>
+        </div>
+      </div>
+      
+      <!-- Layer 2 with Webflow image -->
+      <div class="sticky-layer sticky-layer-2">
+        <div class="w-embed">
+          <div class="layer-image-wrapper">
+            <!-- Add Webflow Image Element here with class "layer-image" -->
+          </div>
+        </div>
+        <div class="layer-overlay layer-overlay-red"></div>
+        <div class="layer-content">
+          <h3 class="layer-title">Escasez Crítica</h3>
+          <p class="layer-subtitle">Los recursos hídricos bajo presión extrema</p>
+        </div>
+      </div>
+      
+      <!-- Layer 3 - Glass morphism overlay -->
+      <div class="sticky-layer sticky-layer-3">
+        <div class="collision-content">
+          <h2 class="collision-title-mobile">Aquí está su inversión</h2>
+          <div class="collision-line-mobile"></div>
+          <div class="mobile-chips">
+            <div class="mobile-chip">Costos elevados</div>
+            <div class="mobile-chip">Daños ambientales</div>
+            <div class="mobile-chip">Resistencia social</div>
+            <div class="mobile-chip">Riesgo regulatorio</div>
+          </div>
+        </div>
+      </div>
+      
     </div>
   </div>
 </div>
