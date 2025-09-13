@@ -218,85 +218,56 @@ Add this CSS for mobile only (replace the existing mobile section in your CSS):
 }
 ```
 
-## JavaScript for Scroll Control
+## ⚠️ IMPORTANT: Use Unified JavaScript Instead
 
-Add this JavaScript to control the layering effect:
+**This file has been superseded by the unified solution.**
+
+**Use this file instead:** `UNIFIED_MOBILE_DESKTOP_JS.md`
+
+The unified JavaScript fixes the critical issue where both mobile and desktop animations were showing simultaneously.
+
+## Quick Fix Reference
+
+If you need the corrected JavaScript immediately, here's the key fix:
 
 ```javascript
-// Mobile Sticky Scroll Animation
+// CRITICAL: Add device detection and visibility control
 document.addEventListener('DOMContentLoaded', function() {
-  if (window.innerWidth <= 991) {
-    const layers = document.querySelectorAll('.sticky-layer');
-    const stickyContainer = document.querySelector('.mobile-sticky-container');
-    
-    if (!stickyContainer) return;
-    
-    function updateLayers() {
-      const containerTop = stickyContainer.offsetTop;
-      const containerHeight = stickyContainer.offsetHeight;
-      const scrollY = window.scrollY;
-      const viewportHeight = window.innerHeight;
-      
-      // Calculate scroll progress through the container
-      const scrollProgress = (scrollY - containerTop) / (containerHeight - viewportHeight);
-      
-      // Layer 1 - Infrastructure boom (appears first, stays visible)
-      const layer1 = document.querySelector('.sticky-layer-1');
-      if (scrollProgress >= 0 && scrollProgress <= 1) {
-        layer1.style.opacity = '1';
-      } else {
-        layer1.style.opacity = '0';
-      }
-      
-      // Layer 2 - Escasez crítica (appears at 33% progress)
-      const layer2 = document.querySelector('.sticky-layer-2');
-      if (scrollProgress >= 0.33 && scrollProgress <= 1) {
-        layer2.style.opacity = '1';
-        // Scale up slightly for covering effect
-        layer2.style.transform = 'translateX(-50%) scale(1)';
-      } else if (scrollProgress > 0.25 && scrollProgress < 0.33) {
-        // Transition in
-        const fadeProgress = (scrollProgress - 0.25) / 0.08;
-        layer2.style.opacity = fadeProgress;
-        layer2.style.transform = `translateX(-50%) scale(${0.95 + (fadeProgress * 0.05)})`;
-      } else {
-        layer2.style.opacity = '0';
-        layer2.style.transform = 'translateX(-50%) scale(0.95)';
-      }
-      
-      // Layer 3 - Aquí está su inversión (appears at 66% progress)
-      const layer3 = document.querySelector('.sticky-layer-3');
-      if (scrollProgress >= 0.66 && scrollProgress <= 1) {
-        layer3.style.opacity = '1';
-        layer3.style.transform = 'translateX(-50%) scale(1)';
-      } else if (scrollProgress > 0.58 && scrollProgress < 0.66) {
-        // Transition in
-        const fadeProgress = (scrollProgress - 0.58) / 0.08;
-        layer3.style.opacity = fadeProgress;
-        layer3.style.transform = `translateX(-50%) scale(${0.9 + (fadeProgress * 0.1)})`;
-      } else {
-        layer3.style.opacity = '0';
-        layer3.style.transform = 'translateX(-50%) scale(0.9)';
-      }
+    function isMobile() {
+        return window.innerWidth <= 991;
     }
     
-    // Throttled scroll listener
-    let ticking = false;
-    function onScroll() {
-      if (!ticking) {
-        requestAnimationFrame(function() {
-          updateLayers();
-          ticking = false;
-        });
-        ticking = true;
-      }
+    function showMobileVersion() {
+        document.querySelector('.split-panel-container').style.display = 'none';
+        document.querySelector('.mobile-sticky-container').style.display = 'block';
     }
     
-    window.addEventListener('scroll', onScroll);
-    updateLayers(); // Initial call
-  }
+    function showDesktopVersion() {
+        document.querySelector('.split-panel-container').style.display = 'flex';
+        document.querySelector('.mobile-sticky-container').style.display = 'none';
+    }
+    
+    // Initialize proper version based on device
+    if (isMobile()) {
+        showMobileVersion();
+        // Initialize mobile sticky scroll animation
+    } else {
+        showDesktopVersion();
+        // Initialize desktop collision animation  
+    }
+    
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (isMobile()) {
+            showMobileVersion();
+        } else {
+            showDesktopVersion();
+        }
+    });
 });
 ```
+
+**For the complete solution, see:** `UNIFIED_MOBILE_DESKTOP_JS.md`
 
 ## HTML Structure with Images
 

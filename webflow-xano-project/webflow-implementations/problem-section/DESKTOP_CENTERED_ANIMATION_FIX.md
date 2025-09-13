@@ -23,6 +23,16 @@ Replace lines 196-205 in your CSS with this centered animation:
 }
 ```
 
+## ⚠️ IMPORTANT: Use Unified JavaScript
+
+**This CSS fix is correct, but you also need the unified JavaScript solution.**
+
+**Required files:**
+1. **This file** - CSS centering fix
+2. **UNIFIED_MOBILE_DESKTOP_JS.md** - JavaScript device detection
+
+The unified JavaScript prevents both mobile and desktop animations from showing simultaneously.
+
 ## Why This Works Better
 
 ### Before (Issue):
@@ -41,5 +51,11 @@ Replace lines 196-205 in your CSS with this centered animation:
 Before: |[LEFT_IMAGE]     [CENTER_TEXT]     [RIGHT_IMAGE]|
 After:  |    [LEFT_IMG] [CENTER_TEXT] [RIGHT_IMG]    |
 ```
+
+## Complete Implementation
+
+1. **Apply this CSS fix** for proper centering
+2. **Use UNIFIED_MOBILE_DESKTOP_JS.md** for device detection
+3. **Test with MOBILE_DESKTOP_TESTING_GUIDE.md**
 
 The -25% and 25% transforms create proper separation while keeping both images visible and the center text perfectly positioned.
