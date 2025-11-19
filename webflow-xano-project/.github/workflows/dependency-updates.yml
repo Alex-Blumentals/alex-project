@@ -1,0 +1,477 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run dependency updates weekly on Mondays at 5 AM UTC
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: 'Type of update to perform'
+        required: true
+        type: choice
+        options:
+          - 'security'
+          - 'minor'
+          - 'major'
+          - 'all'
+        default: 'security'
+      create_pr:
+        description: 'Create pull request for updates'
+        type: boolean
+        default: true
+      auto_merge:
+        description: 'Auto-merge security updates (if tests pass)'
+        type: boolean
+        default: false
+
+jobs:
+  check-updates:
+    name: Check for Dependency Updates
+    runs-on: ubuntu-latest
+    outputs:
+      has_security_updates: ${{ steps.check.outputs.has_security_updates }}
+      has_minor_updates: ${{ steps.check.outputs.has_minor_updates }}
+      has_major_updates: ${{ steps.check.outputs.has_major_updates }}
+      update_summary: ${{ steps.check.outputs.update_summary }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Check for security updates
+        id: security_check
+        run: |
+          echo "🔍 Checking for security updates..."
+          
+          # Run audit and capture vulnerable packages
+          if npm audit --audit-level=moderate --json > audit.json 2>/dev/null; then
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+          else
+            VULNERABLE_COUNT=$(jq '.metadata.vulnerabilities.moderate + .metadata.vulnerabilities.high + .metadata.vulnerabilities.critical' audit.json 2>/dev/null || echo "0")
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            echo "vulnerable_count=$VULNERABLE_COUNT" >> $GITHUB_OUTPUT
+            
+            echo "Found $VULNERABLE_COUNT vulnerable packages"
+          fi
+          
+      - name: Check for outdated packages
+        id: outdated_check
+        run: |
+          echo "📦 Checking for outdated packages..."
+          
+          # Get outdated packages
+          npm outdated --json > outdated.json 2>/dev/null || true
+          
+          if [ -s outdated.json ]; then
+            TOTAL_OUTDATED=$(jq 'keys | length' outdated.json)
+            MINOR_UPDATES=$(jq 'to_entries | map(select(.value.latest != .value.wanted)) | length' outdated.json)
+            MAJOR_UPDATES=$(jq 'to_entries | map(select(.value.latest != .value.current and (.value.latest | split(".")[0] | tonumber) > (.value.current | split(".")[0] | tonumber))) | length' outdated.json)
+            
+            echo "has_outdated=true" >> $GITHUB_OUTPUT
+            echo "total_outdated=$TOTAL_OUTDATED" >> $GITHUB_OUTPUT
+            echo "minor_updates=$MINOR_UPDATES" >> $GITHUB_OUTPUT
+            echo "major_updates=$MAJOR_UPDATES" >> $GITHUB_OUTPUT
+          else
+            echo "has_outdated=false" >> $GITHUB_OUTPUT
+            echo "total_outdated=0" >> $GITHUB_OUTPUT
+            echo "minor_updates=0" >> $GITHUB_OUTPUT
+            echo "major_updates=0" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Summarize update status
+        id: check
+        run: |
+          HAS_VULNERABILITIES="${{ steps.security_check.outputs.has_vulnerabilities }}"
+          HAS_OUTDATED="${{ steps.outdated_check.outputs.has_outdated }}"
+          VULNERABLE_COUNT="${{ steps.security_check.outputs.vulnerable_count }}"
+          MINOR_UPDATES="${{ steps.outdated_check.outputs.minor_updates }}"
+          MAJOR_UPDATES="${{ steps.outdated_check.outputs.major_updates }}"
+          
+          echo "has_security_updates=$HAS_VULNERABILITIES" >> $GITHUB_OUTPUT
+          echo "has_minor_updates=$([ "$MINOR_UPDATES" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "has_major_updates=$([ "$MAJOR_UPDATES" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          
+          # Create summary
+          SUMMARY="Security updates: $VULNERABLE_COUNT vulnerable packages\n"
+          SUMMARY+="Minor updates: $MINOR_UPDATES packages\n"
+          SUMMARY+="Major updates: $MAJOR_UPDATES packages"
+          
+          echo "update_summary<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: Upload check results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-results
+          path: |
+            audit.json
+            outdated.json
+          retention-days: 7
+
+  security-updates:
+    name: Apply Security Updates
+    runs-on: ubuntu-latest
+    needs: check-updates
+    if: |
+      needs.check-updates.outputs.has_security_updates == 'true' && 
+      (github.event.inputs.update_type == 'security' || github.event.inputs.update_type == 'all' || github.event_name == 'schedule')
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Apply security fixes
+        run: |
+          echo "🔒 Applying security updates..."
+          
+          # Try automatic fix first
+          npm audit fix --audit-level=moderate
+          
+          # Check if fixes were applied
+          if npm audit --audit-level=moderate > /dev/null 2>&1; then
+            echo "✅ All security vulnerabilities have been fixed"
+          else
+            echo "⚠️ Some vulnerabilities may require manual intervention"
+            npm audit --audit-level=moderate || true
+          fi
+          
+      - name: Run tests after security updates
+        run: |
+          echo "🧪 Running tests after security updates..."
+          npm test
+        env:
+          NODE_ENV: test
+          
+      - name: Check for breaking changes
+        id: breaking_check
+        run: |
+          echo "🔍 Checking for breaking changes..."
+          
+          # Try to build
+          if npm run build; then
+            echo "build_success=true" >> $GITHUB_OUTPUT
+            echo "✅ Build successful after updates"
+          else
+            echo "build_success=false" >> $GITHUB_OUTPUT
+            echo "❌ Build failed after updates"
+          fi
+        env:
+          NODE_ENV: production
+          
+      - name: Create security update PR
+        if: github.event.inputs.create_pr != 'false' && steps.breaking_check.outputs.build_success == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "security: update dependencies to fix vulnerabilities"
+          title: "🔒 Security: Fix dependency vulnerabilities"
+          body: |
+            ## Security Dependency Updates
+            
+            This PR contains automatic security updates to fix known vulnerabilities.
+            
+            ### Updates Applied:
+            - Ran `npm audit fix` to address security vulnerabilities
+            - All tests pass ✅
+            - Build succeeds ✅
+            
+            ### Verification:
+            - [ ] Review the updated dependencies
+            - [ ] Test the application manually
+            - [ ] Merge if everything looks good
+            
+            **Auto-generated by dependency-updates workflow**
+          branch: security-updates-${{ github.run_id }}
+          delete-branch: true
+          labels: |
+            dependencies
+            security
+            automated
+          reviewers: ${{ github.actor }}
+          
+      - name: Auto-merge security updates
+        if: |
+          github.event.inputs.auto_merge == 'true' && 
+          steps.breaking_check.outputs.build_success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = process.env.PR_NUMBER;
+            if (prNumber) {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                event: 'APPROVE',
+                body: 'Auto-approving security updates as tests passed and build succeeded.'
+              });
+              
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                commit_title: 'security: auto-merge dependency security fixes',
+                merge_method: 'squash'
+              });
+              
+              console.log('Security updates auto-merged successfully');
+            }
+
+  minor-updates:
+    name: Apply Minor Updates
+    runs-on: ubuntu-latest
+    needs: check-updates
+    if: |
+      needs.check-updates.outputs.has_minor_updates == 'true' && 
+      (github.event.inputs.update_type == 'minor' || github.event.inputs.update_type == 'all')
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Apply minor updates
+        run: |
+          echo "📦 Applying minor updates..."
+          
+          # Update to wanted versions (minor updates)
+          npm update
+          
+          echo "✅ Minor updates applied"
+          
+      - name: Run tests after minor updates
+        run: |
+          echo "🧪 Running tests after minor updates..."
+          npm test
+        env:
+          NODE_ENV: test
+          
+      - name: Check build after minor updates
+        run: |
+          echo "🏗️ Testing build after minor updates..."
+          npm run build
+        env:
+          NODE_ENV: production
+          
+      - name: Create minor update PR
+        if: github.event.inputs.create_pr != 'false'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "deps: update minor dependencies"
+          title: "📦 Dependencies: Minor version updates"
+          body: |
+            ## Minor Dependency Updates
+            
+            This PR contains automatic minor version updates for dependencies.
+            
+            ### Updates Applied:
+            - Ran `npm update` to update to latest compatible versions
+            - All tests pass ✅
+            - Build succeeds ✅
+            
+            ### What's Updated:
+            Minor version updates that should be backward compatible according to semantic versioning.
+            
+            ### Verification:
+            - [ ] Review the updated dependencies
+            - [ ] Test the application manually
+            - [ ] Merge if everything works as expected
+            
+            **Auto-generated by dependency-updates workflow**
+          branch: minor-updates-${{ github.run_id }}
+          delete-branch: true
+          labels: |
+            dependencies
+            minor-update
+            automated
+
+  major-updates:
+    name: Identify Major Updates
+    runs-on: ubuntu-latest
+    needs: check-updates
+    if: |
+      needs.check-updates.outputs.has_major_updates == 'true' && 
+      (github.event.inputs.update_type == 'major' || github.event.inputs.update_type == 'all')
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Analyze major updates
+        run: |
+          echo "🔍 Analyzing major updates..."
+          
+          npm outdated --json > major-updates.json 2>/dev/null || true
+          
+          if [ -s major-updates.json ]; then
+            echo "Major updates available:"
+            jq -r 'to_entries[] | select(.value.latest != .value.current and (.value.latest | split(".")[0] | tonumber) > (.value.current | split(".")[0] | tonumber)) | "\(.key): \(.value.current) → \(.value.latest)"' major-updates.json
+            
+            # Create issue for manual review
+            cat > major-updates-issue.md << 'EOF'
+          ## 🚀 Major Dependency Updates Available
+          
+          The following packages have major version updates available that require manual review:
+          
+          EOF
+          
+            jq -r 'to_entries[] | select(.value.latest != .value.current and (.value.latest | split(".")[0] | tonumber) > (.value.current | split(".")[0] | tonumber)) | "- **\(.key)**: \(.value.current) → \(.value.latest)"' major-updates.json >> major-updates-issue.md
+            
+            cat >> major-updates-issue.md << 'EOF'
+          
+          ### Action Required:
+          1. Review each package's changelog for breaking changes
+          2. Test updates in a separate branch
+          3. Update code if necessary to handle breaking changes
+          4. Create PR with major updates once tested
+          
+          ### Resources:
+          - [npm outdated documentation](https://docs.npmjs.com/cli/v8/commands/npm-outdated)
+          - [Semantic Versioning](https://semver.org/)
+          
+          **Auto-generated by dependency-updates workflow**
+          EOF
+          
+            echo "Created major updates analysis"
+          else
+            echo "No major updates found"
+          fi
+          
+      - name: Upload major updates analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: major-updates-analysis
+          path: |
+            major-updates.json
+            major-updates-issue.md
+          retention-days: 30
+          
+      - name: Create issue for major updates
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const issueBody = fs.readFileSync('major-updates-issue.md', 'utf8');
+              
+              // Check if issue already exists
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: 'dependencies,major-update',
+                state: 'open'
+              });
+              
+              const existingIssue = issues.data.find(issue => 
+                issue.title.includes('Major Dependency Updates Available')
+              );
+              
+              if (existingIssue) {
+                console.log('Major updates issue already exists, updating...');
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existingIssue.number,
+                  body: `## Updated Major Updates Analysis - ${new Date().toISOString().split('T')[0]}
+                  
+                  ${issueBody}`
+                });
+              } else {
+                console.log('Creating new major updates issue...');
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: '🚀 Major Dependency Updates Available',
+                  body: issueBody,
+                  labels: ['dependencies', 'major-update', 'manual-review']
+                });
+              }
+            } catch (error) {
+              console.log('No major updates file found or error creating issue:', error.message);
+            }
+
+  summary:
+    name: Dependency Update Summary
+    runs-on: ubuntu-latest
+    needs: [check-updates, security-updates, minor-updates, major-updates]
+    if: always()
+    
+    steps:
+      - name: Create update summary
+        run: |
+          echo "## 📦 Dependency Updates Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Update Type**: ${{ github.event.inputs.update_type || 'scheduled' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Update Status:" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.check-updates.outputs.update_summary }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Job Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Check Updates**: ${{ needs.check-updates.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security Updates**: ${{ needs.security-updates.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Minor Updates**: ${{ needs.minor-updates.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Major Updates**: ${{ needs.major-updates.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.check-updates.outputs.has_security_updates }}" == "true" ]]; then
+            echo "- ⚠️ Review and merge security update PRs" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [[ "${{ needs.check-updates.outputs.has_minor_updates }}" == "true" ]]; then
+            echo "- 📦 Review and merge minor update PRs" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [[ "${{ needs.check-updates.outputs.has_major_updates }}" == "true" ]]; then
+            echo "- 🚀 Review major updates issue and plan upgrade strategy" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Automation Status:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto-merge Security**: ${{ github.event.inputs.auto_merge || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Create PRs**: ${{ github.event.inputs.create_pr || 'true' }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,171 @@
+name: ❓ Question or Support
+description: Ask a question about the project, get help with setup, or request support
+title: "[QUESTION] "
+labels: ["question", "support"]
+assignees:
+  - Alex-Blumentals
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out! Please provide details about your question so we can help you effectively.
+        
+        **Before asking:** Please check the [Documentation](https://github.com/Alex-Blumentals/alex-project/blob/main/README.md) and [Deployment Guide](https://github.com/Alex-Blumentals/alex-project/blob/main/DEPLOYMENT_GUIDE.md) first.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      description: Please confirm you've completed these steps
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have checked the project documentation
+          required: true
+        - label: I have reviewed the deployment guide and troubleshooting section
+          required: false
+
+  - type: dropdown
+    id: question_type
+    attributes:
+      label: Question Type
+      description: What type of question is this?
+      options:
+        - Setup/Configuration Help
+        - How to Use/Integration Guide
+        - Troubleshooting Help
+        - Best Practices
+        - Architecture/Design Question
+        - Performance Question
+        - Security Question
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Related Component
+      description: Which part of the system is your question about?
+      options:
+        - General/Project Overview
+        - Webflow Integration
+        - Xano Backend/API
+        - GitHub Actions/CI-CD
+        - Environment Configuration
+        - Authentication/Security
+        - Deployment Process
+        - Development Setup
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: |
+        Please be as specific as possible. Include:
+        - What you're trying to achieve
+        - What you've tried so far
+        - Where you're getting stuck
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context & Background
+      description: Provide context about your situation
+      placeholder: |
+        - What environment are you working with?
+        - What's your experience level with Webflow/Xano?
+        - Are you setting up for the first time or modifying existing setup?
+        - Any constraints or special requirements?
+
+  - type: textarea
+    id: current_setup
+    attributes:
+      label: Current Setup
+      description: Describe your current setup (if applicable)
+      placeholder: |
+        - Operating system
+        - Node.js version
+        - Browser (if web-related)
+        - Current configuration
+        - What's working vs. what's not working
+
+  - type: textarea
+    id: attempted_solutions
+    attributes:
+      label: What Have You Tried?
+      description: What solutions have you already attempted?
+      placeholder: |
+        - Steps you've already taken
+        - Documentation you've consulted
+        - Error messages you've encountered
+        - Workarounds you've attempted
+
+  - type: textarea
+    id: expected_outcome
+    attributes:
+      label: Expected Outcome
+      description: What are you hoping to achieve?
+      placeholder: |
+        - What should happen when everything works correctly?
+        - What's your end goal?
+        - Are there any specific requirements or constraints?
+
+  - type: textarea
+    id: error_messages
+    attributes:
+      label: Error Messages or Screenshots
+      description: Any relevant error messages, logs, or screenshots
+      placeholder: |
+        If you're getting errors, please include:
+        - Exact error messages
+        - Console logs
+        - Screenshots (if helpful)
+        
+        ```
+        Paste error messages here
+        ```
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this question?
+      options:
+        - 🚨 Urgent - Blocking critical work
+        - 🟠 High - Important for current project
+        - 🟡 Medium - Helpful for productivity
+        - 🟢 Low - General learning/curiosity
+      default: 2
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: help_type
+    attributes:
+      label: Type of Help Needed
+      description: What kind of help would be most useful?
+      options:
+        - label: Step-by-step instructions
+        - label: Code examples or snippets
+        - label: Architecture guidance
+        - label: Best practices recommendations
+        - label: Troubleshooting assistance
+        - label: Resource recommendations (documentation, tutorials)
+        - label: Live support or screen sharing session
+
+  - type: textarea
+    id: additional_info
+    attributes:
+      label: Additional Information
+      description: Any other relevant details
+      placeholder: |
+        - Links to relevant documentation you've found
+        - Similar questions or issues you've seen
+        - Any other context that might be helpful

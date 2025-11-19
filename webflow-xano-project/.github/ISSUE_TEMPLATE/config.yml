@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/Alex-Blumentals/alex-project/blob/main/README.md
+    about: Check the project documentation for setup instructions and guides
+  - name: 🔧 Deployment Guide
+    url: https://github.com/Alex-Blumentals/alex-project/blob/main/DEPLOYMENT_GUIDE.md
+    about: Comprehensive deployment procedures and troubleshooting
+  - name: 🔒 Security Policy
+    url: https://github.com/Alex-Blumentals/alex-project/blob/main/.github/SECURITY.md
+    about: Report security vulnerabilities or review security policies
+  - name: 💬 Discussion Forum
+    url: https://github.com/Alex-Blumentals/alex-project/discussions
+    about: Ask questions, share ideas, or discuss features with the community
+  - name: 🚀 GitHub Actions Status
+    url: https://github.com/Alex-Blumentals/alex-project/actions
+    about: Check the status of CI/CD pipelines and workflows

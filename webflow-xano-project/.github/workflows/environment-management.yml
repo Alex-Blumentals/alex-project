@@ -1,0 +1,522 @@
+name: Environment Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - 'sync-environments'
+          - 'validate-secrets'
+          - 'test-connections'
+          - 'create-backup'
+          - 'rotate-api-keys'
+        default: 'sync-environments'
+      environment:
+        description: 'Target environment (leave empty for all)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - 'development'
+          - 'staging'
+          - 'production'
+      dry_run:
+        description: 'Dry run (no actual changes)'
+        type: boolean
+        default: true
+
+  schedule:
+    # Run environment validation daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  validate-secrets:
+    name: Validate Environment Secrets
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'validate-secrets' || github.event.inputs.action == '' || github.event_name == 'schedule'
+    
+    strategy:
+      matrix:
+        environment: [development, staging, production]
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Validate Webflow secrets
+        run: |
+          echo "🔍 Validating Webflow secrets for ${{ matrix.environment }}..."
+          
+          # Check if required secrets exist
+          if [ -z "$WEBFLOW_API_TOKEN" ]; then
+            echo "❌ WEBFLOW_API_TOKEN is missing"
+            exit 1
+          fi
+          
+          case "${{ matrix.environment }}" in
+            "development")
+              SITE_ID="$WEBFLOW_DEV_SITE_ID"
+              ;;
+            "staging")
+              SITE_ID="$WEBFLOW_STAGING_SITE_ID"
+              ;;
+            "production")
+              SITE_ID="$WEBFLOW_PRODUCTION_SITE_ID"
+              ;;
+          esac
+          
+          if [ -z "$SITE_ID" ]; then
+            echo "❌ Webflow site ID for ${{ matrix.environment }} is missing"
+            exit 1
+          fi
+          
+          echo "✅ Webflow secrets validation passed for ${{ matrix.environment }}"
+        env:
+          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+          WEBFLOW_DEV_SITE_ID: ${{ secrets.WEBFLOW_DEV_SITE_ID }}
+          WEBFLOW_STAGING_SITE_ID: ${{ secrets.WEBFLOW_STAGING_SITE_ID }}
+          WEBFLOW_PRODUCTION_SITE_ID: ${{ secrets.WEBFLOW_PRODUCTION_SITE_ID }}
+          
+      - name: Validate Xano secrets
+        run: |
+          echo "🔍 Validating Xano secrets for ${{ matrix.environment }}..."
+          
+          # Check workspace ID
+          if [ -z "$XANO_WORKSPACE_ID" ]; then
+            echo "❌ XANO_WORKSPACE_ID is missing"
+            exit 1
+          fi
+          
+          # Check environment-specific secrets
+          case "${{ matrix.environment }}" in
+            "development")
+              API_KEY="$XANO_DEV_API_KEY"
+              API_URL="$XANO_DEV_URL"
+              ;;
+            "staging")
+              API_KEY="$XANO_STAGING_API_KEY"
+              API_URL="$XANO_STAGING_URL"
+              ;;
+            "production")
+              API_KEY="$XANO_PRODUCTION_API_KEY"
+              API_URL="$XANO_PRODUCTION_URL"
+              ;;
+          esac
+          
+          if [ -z "$API_KEY" ]; then
+            echo "❌ Xano API key for ${{ matrix.environment }} is missing"
+            exit 1
+          fi
+          
+          if [ -z "$API_URL" ]; then
+            echo "❌ Xano API URL for ${{ matrix.environment }} is missing"
+            exit 1
+          fi
+          
+          echo "✅ Xano secrets validation passed for ${{ matrix.environment }}"
+        env:
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_DEV_API_KEY: ${{ secrets.XANO_DEV_API_KEY }}
+          XANO_DEV_URL: ${{ secrets.XANO_DEV_URL }}
+          XANO_STAGING_API_KEY: ${{ secrets.XANO_STAGING_API_KEY }}
+          XANO_STAGING_URL: ${{ secrets.XANO_STAGING_URL }}
+          XANO_PRODUCTION_API_KEY: ${{ secrets.XANO_PRODUCTION_API_KEY }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+
+  test-connections:
+    name: Test Environment Connections
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'test-connections' || github.event.inputs.action == ''
+    needs: validate-secrets
+    
+    strategy:
+      matrix:
+        environment: [development, staging, production]
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Test Webflow connection
+        run: |
+          echo "🔗 Testing Webflow connection for ${{ matrix.environment }}..."
+          
+          case "${{ matrix.environment }}" in
+            "development")
+              SITE_ID="$WEBFLOW_DEV_SITE_ID"
+              ;;
+            "staging")
+              SITE_ID="$WEBFLOW_STAGING_SITE_ID"
+              ;;
+            "production")
+              SITE_ID="$WEBFLOW_PRODUCTION_SITE_ID"
+              ;;
+          esac
+          
+          # Test Webflow API connection
+          RESPONSE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer $WEBFLOW_API_TOKEN" \
+            "https://api.webflow.com/sites/$SITE_ID")
+            
+          HTTP_CODE=$(echo "$RESPONSE" | tail -c 4)
+          
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Webflow connection successful for ${{ matrix.environment }}"
+          else
+            echo "❌ Webflow connection failed for ${{ matrix.environment }} (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+        env:
+          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+          WEBFLOW_DEV_SITE_ID: ${{ secrets.WEBFLOW_DEV_SITE_ID }}
+          WEBFLOW_STAGING_SITE_ID: ${{ secrets.WEBFLOW_STAGING_SITE_ID }}
+          WEBFLOW_PRODUCTION_SITE_ID: ${{ secrets.WEBFLOW_PRODUCTION_SITE_ID }}
+          
+      - name: Test Xano connection
+        run: |
+          echo "🔗 Testing Xano connection for ${{ matrix.environment }}..."
+          
+          case "${{ matrix.environment }}" in
+            "development")
+              API_KEY="$XANO_DEV_API_KEY"
+              API_URL="$XANO_DEV_URL"
+              ;;
+            "staging")
+              API_KEY="$XANO_STAGING_API_KEY"
+              API_URL="$XANO_STAGING_URL"
+              ;;
+            "production")
+              API_KEY="$XANO_PRODUCTION_API_KEY"
+              API_URL="$XANO_PRODUCTION_URL"
+              ;;
+          esac
+          
+          # Create environment file for testing
+          echo "NODE_ENV=${{ matrix.environment }}" > .env
+          echo "XANO_WORKSPACE_ID=$XANO_WORKSPACE_ID" >> .env
+          echo "XANO_API_KEY=$API_KEY" >> .env
+          
+          case "${{ matrix.environment }}" in
+            "development")
+              echo "XANO_DEV_URL=$API_URL" >> .env
+              ;;
+            "staging")
+              echo "XANO_STAGING_URL=$API_URL" >> .env
+              ;;
+            "production")
+              echo "XANO_PROD_URL=$API_URL" >> .env
+              ;;
+          esac
+          
+          # Test Xano connection using project utilities
+          if npm run xano:dev -- --health-check --url="$API_URL"; then
+            echo "✅ Xano connection successful for ${{ matrix.environment }}"
+          else
+            echo "❌ Xano connection failed for ${{ matrix.environment }}"
+            exit 1
+          fi
+        env:
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_DEV_API_KEY: ${{ secrets.XANO_DEV_API_KEY }}
+          XANO_DEV_URL: ${{ secrets.XANO_DEV_URL }}
+          XANO_STAGING_API_KEY: ${{ secrets.XANO_STAGING_API_KEY }}
+          XANO_STAGING_URL: ${{ secrets.XANO_STAGING_URL }}
+          XANO_PRODUCTION_API_KEY: ${{ secrets.XANO_PRODUCTION_API_KEY }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+
+  sync-environments:
+    name: Sync Environment Configuration
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'sync-environments' || github.event.inputs.action == ''
+    needs: [validate-secrets, test-connections]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Sync development environment
+        if: github.event.inputs.environment == '' || github.event.inputs.environment == 'development'
+        run: |
+          echo "🔄 Syncing development environment..."
+          
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would sync development environment"
+            npm run xano:sync -- --dry-run --env=development
+          else
+            echo "🚀 Syncing development environment"
+            npm run xano:sync -- --env=development
+          fi
+        env:
+          NODE_ENV: development
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_DEV_API_KEY: ${{ secrets.XANO_DEV_API_KEY }}
+          XANO_DEV_URL: ${{ secrets.XANO_DEV_URL }}
+          
+      - name: Sync staging environment
+        if: github.event.inputs.environment == '' || github.event.inputs.environment == 'staging'
+        run: |
+          echo "🔄 Syncing staging environment..."
+          
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would sync staging environment"
+            npm run xano:sync -- --dry-run --env=staging
+          else
+            echo "🚀 Syncing staging environment"
+            npm run xano:sync -- --env=staging
+          fi
+        env:
+          NODE_ENV: staging
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_STAGING_API_KEY: ${{ secrets.XANO_STAGING_API_KEY }}
+          XANO_STAGING_URL: ${{ secrets.XANO_STAGING_URL }}
+          
+      - name: Sync production environment (with extra caution)
+        if: github.event.inputs.environment == 'production'
+        run: |
+          echo "🔄 Syncing production environment with extra caution..."
+          
+          if [ "${{ github.event.inputs.dry_run }}" != "false" ]; then
+            echo "🔍 DRY RUN: Would sync production environment"
+            echo "⚠️  Production sync requires explicit dry_run=false"
+            npm run xano:sync -- --dry-run --env=production
+          else
+            echo "🚀 Syncing production environment"
+            echo "⚠️  This will modify production data!"
+            npm run xano:sync -- --env=production --backup-first
+          fi
+        env:
+          NODE_ENV: production
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_PRODUCTION_API_KEY: ${{ secrets.XANO_PRODUCTION_API_KEY }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+
+  create-backup:
+    name: Create Environment Backup
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'create-backup'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Create backup
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          if [ -z "$ENVIRONMENT" ]; then
+            ENVIRONMENT="all"
+          fi
+          
+          echo "🗄️ Creating backup for environment: $ENVIRONMENT"
+          BACKUP_NAME="manual-backup-$(date +%Y%m%d-%H%M%S)-$ENVIRONMENT"
+          
+          case "$ENVIRONMENT" in
+            "development"|"all")
+              echo "📦 Backing up development environment..."
+              npm run xano:sync backup-development -- --name="$BACKUP_NAME-dev"
+              ;;
+          esac
+          
+          case "$ENVIRONMENT" in
+            "staging"|"all")
+              echo "📦 Backing up staging environment..."
+              npm run xano:sync backup-staging -- --name="$BACKUP_NAME-staging"
+              ;;
+          esac
+          
+          case "$ENVIRONMENT" in
+            "production"|"all")
+              echo "📦 Backing up production environment..."
+              npm run xano:sync backup-production -- --name="$BACKUP_NAME-production"
+              ;;
+          esac
+          
+          echo "✅ Backup creation completed"
+        env:
+          XANO_WORKSPACE_ID: ${{ secrets.XANO_WORKSPACE_ID }}
+          XANO_DEV_API_KEY: ${{ secrets.XANO_DEV_API_KEY }}
+          XANO_DEV_URL: ${{ secrets.XANO_DEV_URL }}
+          XANO_STAGING_API_KEY: ${{ secrets.XANO_STAGING_API_KEY }}
+          XANO_STAGING_URL: ${{ secrets.XANO_STAGING_URL }}
+          XANO_PRODUCTION_API_KEY: ${{ secrets.XANO_PRODUCTION_API_KEY }}
+          XANO_PRODUCTION_URL: ${{ secrets.XANO_PRODUCTION_URL }}
+
+  generate-env-template:
+    name: Generate Environment Template
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'sync-environments' || github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Generate .env.example
+        run: |
+          echo "# Environment Configuration Template" > .env.example
+          echo "# Generated automatically - DO NOT EDIT MANUALLY" >> .env.example
+          echo "" >> .env.example
+          echo "# Environment" >> .env.example
+          echo "NODE_ENV=development" >> .env.example
+          echo "" >> .env.example
+          echo "# Webflow Configuration" >> .env.example
+          echo "WEBFLOW_SITE_ID=your_webflow_site_id" >> .env.example
+          echo "WEBFLOW_API_TOKEN=your_webflow_api_token" >> .env.example
+          echo "" >> .env.example
+          echo "# Xano Configuration" >> .env.example
+          echo "XANO_WORKSPACE_ID=your_xano_workspace_id" >> .env.example
+          echo "" >> .env.example
+          echo "# Development Environment" >> .env.example
+          echo "XANO_DEV_URL=https://your-workspace-dev.xano.com" >> .env.example
+          echo "XANO_DEV_API_KEY=your_dev_api_key" >> .env.example
+          echo "" >> .env.example
+          echo "# Staging Environment" >> .env.example
+          echo "XANO_STAGING_URL=https://your-workspace-staging.xano.com" >> .env.example
+          echo "XANO_STAGING_API_KEY=your_staging_api_key" >> .env.example
+          echo "" >> .env.example
+          echo "# Production Environment" >> .env.example
+          echo "XANO_PROD_URL=https://your-workspace.xano.com" >> .env.example
+          echo "XANO_PRODUCTION_API_KEY=your_production_api_key" >> .env.example
+          echo "" >> .env.example
+          echo "# Development Settings" >> .env.example
+          echo "HOT_RELOAD=true" >> .env.example
+          echo "DEV_PORT=3000" >> .env.example
+          
+      - name: Create environment documentation
+        run: |
+          cat > ENVIRONMENT_SETUP.md << 'EOF'
+          # Environment Setup Guide
+          
+          This document provides instructions for setting up environment variables for the Webflow + Xano project.
+          
+          ## Required Environment Variables
+          
+          ### Core Configuration
+          - `NODE_ENV`: Environment name (development, staging, production)
+          - `WEBFLOW_SITE_ID`: Your Webflow site ID
+          - `WEBFLOW_API_TOKEN`: Your Webflow API token
+          - `XANO_WORKSPACE_ID`: Your Xano workspace ID
+          
+          ### Environment-Specific URLs and Keys
+          
+          #### Development
+          - `XANO_DEV_URL`: Development Xano instance URL
+          - `XANO_DEV_API_KEY`: Development API key
+          
+          #### Staging
+          - `XANO_STAGING_URL`: Staging Xano instance URL
+          - `XANO_STAGING_API_KEY`: Staging API key
+          
+          #### Production
+          - `XANO_PRODUCTION_URL`: Production Xano instance URL
+          - `XANO_PRODUCTION_API_KEY`: Production API key
+          
+          ## GitHub Secrets Setup
+          
+          Add these secrets to your GitHub repository:
+          
+          ### Webflow Secrets
+          - `WEBFLOW_API_TOKEN`
+          - `WEBFLOW_DEV_SITE_ID`
+          - `WEBFLOW_STAGING_SITE_ID`
+          - `WEBFLOW_PRODUCTION_SITE_ID`
+          
+          ### Xano Secrets
+          - `XANO_WORKSPACE_ID`
+          - `XANO_DEV_URL`
+          - `XANO_DEV_API_KEY`
+          - `XANO_STAGING_URL`
+          - `XANO_STAGING_API_KEY`
+          - `XANO_PRODUCTION_URL`
+          - `XANO_PRODUCTION_API_KEY`
+          
+          ## Validation
+          
+          Use the Environment Management workflow to validate your setup:
+          1. Go to Actions → Environment Management
+          2. Select "validate-secrets" action
+          3. Run workflow to check all configurations
+          
+          ## Troubleshooting
+          
+          If environment validation fails:
+          1. Check that all required secrets are set in GitHub
+          2. Verify API keys are valid and have proper permissions
+          3. Ensure URLs are correct and accessible
+          4. Run connection tests through the workflow
+          EOF
+          
+      - name: Commit generated files
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          if [[ $(git status --porcelain) ]]; then
+            git add .env.example ENVIRONMENT_SETUP.md
+            git commit -m "chore: update environment template and documentation
+            
+            Generated by environment-management workflow"
+            git push
+            echo "✅ Updated environment template files"
+          else
+            echo "ℹ️ No changes to environment template files"
+          fi
+
+  summary:
+    name: Environment Management Summary
+    runs-on: ubuntu-latest
+    needs: [validate-secrets, test-connections, sync-environments, create-backup, generate-env-template]
+    if: always()
+    
+    steps:
+      - name: Create summary
+        run: |
+          echo "## 🌍 Environment Management Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: ${{ github.event.inputs.action || 'scheduled validation' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ github.event.inputs.environment || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry Run**: ${{ github.event.inputs.dry_run || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Secret Validation**: ${{ needs.validate-secrets.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Connection Tests**: ${{ needs.test-connections.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment Sync**: ${{ needs.sync-environments.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backup Creation**: ${{ needs.create-backup.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Template Generation**: ${{ needs.generate-env-template.result }}" >> $GITHUB_STEP_SUMMARY

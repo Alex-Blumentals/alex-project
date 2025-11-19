@@ -1,0 +1,236 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for the application
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+assignees:
+  - Alex-Blumentals
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide detailed information to help us understand and evaluate your request.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      description: Please confirm you've completed these steps before submitting
+      options:
+        - label: I have searched existing issues and features to ensure this hasn't been requested
+          required: true
+        - label: I have checked the project roadmap/documentation for this feature
+          required: true
+        - label: This feature aligns with the project's goals and scope
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What type of feature is this?
+      options:
+        - User Interface/UX Improvement
+        - Webflow Integration Enhancement
+        - Xano Backend Feature
+        - API/Integration Enhancement
+        - Performance Improvement
+        - Security Enhancement
+        - Developer Experience
+        - Monitoring/Analytics
+        - Automation/Workflow
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature?
+      options:
+        - 🔴 Critical - Essential for business operations
+        - 🟠 High - Important for user experience
+        - 🟡 Medium - Nice to have, improves workflow
+        - 🟢 Low - Enhancement, not critical
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: |
+        Describe the current problem or limitation that this feature would address.
+        Who is affected by this problem? How often does it occur?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your proposed solution in detail
+      placeholder: |
+        What exactly should this feature do?
+        How should it work from a user perspective?
+        What are the key components/requirements?
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User Story
+      description: Describe this feature as a user story
+      placeholder: |
+        As a [type of user], I want [some goal] so that [some reason].
+        
+        Example:
+        As a content manager, I want to bulk upload images to Webflow CMS 
+        so that I can efficiently manage large amounts of visual content.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What conditions must be met for this feature to be considered complete?
+      placeholder: |
+        - [ ] Criteria 1: Specific measurable requirement
+        - [ ] Criteria 2: Another requirement
+        - [ ] Criteria 3: Edge case handling
+        - [ ] Criteria 4: Error handling
+        - [ ] Criteria 5: Performance requirements
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups/Wireframes
+      description: Any visual mockups, wireframes, or design ideas
+      placeholder: |
+        Attach images, links to design files, or describe the visual aspects.
+        Include user flow diagrams if applicable.
+
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Estimated Effort
+      description: How complex do you think this feature is?
+      options:
+        - 🟢 Small - Few hours/1-2 days
+        - 🟡 Medium - Few days/1 week
+        - 🟠 Large - 1-2 weeks
+        - 🔴 Extra Large - Multiple weeks/Epic
+        - 🤷 Unknown - Need technical assessment
+      default: 4
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_considerations
+    attributes:
+      label: Technical Considerations
+      description: Any technical aspects to consider
+      placeholder: |
+        - Dependencies on other systems/features
+        - Integration requirements (Webflow/Xano APIs)
+        - Performance implications
+        - Security considerations
+        - Breaking changes or migration needs
+        - Third-party service requirements
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: What alternatives have you considered?
+      placeholder: |
+        - Alternative approach 1: Description and pros/cons
+        - Alternative approach 2: Description and pros/cons
+        - Why the proposed solution is preferred
+
+  - type: textarea
+    id: business_impact
+    attributes:
+      label: Business Impact
+      description: What's the expected business impact?
+      placeholder: |
+        - User experience improvements
+        - Efficiency gains
+        - Cost savings
+        - Revenue opportunities
+        - Risk mitigation
+        - Competitive advantages
+
+  - type: input
+    id: target_users
+    attributes:
+      label: Target Users
+      description: Who would use this feature?
+      placeholder: End users, content managers, administrators, developers, etc.
+
+  - type: textarea
+    id: success_metrics
+    attributes:
+      label: Success Metrics
+      description: How will we measure the success of this feature?
+      placeholder: |
+        - Usage metrics (adoption rate, frequency of use)
+        - Performance metrics (speed improvements, error reduction)
+        - User satisfaction metrics
+        - Business metrics (conversions, efficiency gains)
+
+  - type: dropdown
+    id: timeline
+    attributes:
+      label: Desired Timeline
+      description: When would you like to see this feature implemented?
+      options:
+        - 🚨 ASAP - Blocking other work
+        - ⏰ This Month - High business priority
+        - 📅 Next Quarter - Important but not urgent
+        - 🔄 Future - Nice to have eventually
+        - 🤷 No Preference - Whenever convenient
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information
+      placeholder: |
+        - Similar features in other applications
+        - Research or user feedback that supports this request
+        - Links to relevant documentation or resources
+        - Stakeholder input or requirements
+
+  - type: checkboxes
+    id: involvement
+    attributes:
+      label: Involvement
+      description: How would you like to be involved in this feature development?
+      options:
+        - label: I can help with requirements gathering and clarification
+        - label: I can provide user testing and feedback
+        - label: I can help with documentation
+        - label: I have technical skills and can contribute to development
+        - label: I can help with project management and coordination
+
+  - type: checkboxes
+    id: related_work
+    attributes:
+      label: Related Work
+      description: Is this feature related to other work?
+      options:
+        - label: This depends on other features/issues (please specify in comments)
+        - label: Other features depend on this (please specify in comments)
+        - label: This is part of a larger project/epic
+        - label: This affects API compatibility
+        - label: This requires infrastructure changes

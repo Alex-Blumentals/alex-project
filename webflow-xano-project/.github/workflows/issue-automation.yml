@@ -1,0 +1,312 @@
+name: Issue Automation
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  auto-label:
+    name: Auto-label Issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Add labels based on title and content
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = issue.body ? issue.body.toLowerCase() : '';
+            const labels = [];
+            
+            // Auto-label based on title prefixes
+            if (title.includes('[bug]') || title.includes('🐛')) {
+              labels.push('bug');
+            }
+            if (title.includes('[feature]') || title.includes('✨')) {
+              labels.push('enhancement');
+            }
+            if (title.includes('[deploy]') || title.includes('🚀')) {
+              labels.push('deployment', 'ops');
+            }
+            if (title.includes('[emergency]') || title.includes('🚨')) {
+              labels.push('emergency', 'critical', 'production');
+            }
+            if (title.includes('[question]') || title.includes('❓')) {
+              labels.push('question', 'support');
+            }
+            
+            // Auto-label based on content
+            if (body.includes('webflow') || body.includes('cms')) {
+              labels.push('webflow');
+            }
+            if (body.includes('xano') || body.includes('backend') || body.includes('api')) {
+              labels.push('xano', 'backend');
+            }
+            if (body.includes('github actions') || body.includes('workflow') || body.includes('ci/cd')) {
+              labels.push('github-actions', 'ci-cd');
+            }
+            if (body.includes('security') || body.includes('authentication') || body.includes('auth')) {
+              labels.push('security');
+            }
+            if (body.includes('performance') || body.includes('slow') || body.includes('optimization')) {
+              labels.push('performance');
+            }
+            if (body.includes('documentation') || body.includes('docs')) {
+              labels.push('documentation');
+            }
+            if (body.includes('environment') || body.includes('config') || body.includes('setup')) {
+              labels.push('configuration');
+            }
+            
+            // Priority labels based on urgency/severity
+            if (body.includes('critical') || body.includes('sev1') || body.includes('💥')) {
+              labels.push('priority: critical');
+            } else if (body.includes('high') || body.includes('sev2') || body.includes('🔥')) {
+              labels.push('priority: high');
+            } else if (body.includes('medium') || body.includes('sev3') || body.includes('⚠️')) {
+              labels.push('priority: medium');
+            } else if (body.includes('low') || body.includes('sev4') || body.includes('🟢')) {
+              labels.push('priority: low');
+            }
+            
+            // Environment labels
+            if (body.includes('production') || body.includes('prod')) {
+              labels.push('env: production');
+            }
+            if (body.includes('staging')) {
+              labels.push('env: staging');
+            }
+            if (body.includes('development') || body.includes('local')) {
+              labels.push('env: development');
+            }
+            
+            // Apply labels if any were identified
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: [...new Set(labels)] // Remove duplicates
+              });
+              
+              console.log(`Added labels: ${labels.join(', ')}`);
+            }
+
+  auto-assign:
+    name: Auto-assign Issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Auto-assign based on issue type and content
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = issue.body ? issue.body.toLowerCase() : '';
+            const assignees = [];
+            
+            // Always assign to project owner for now
+            assignees.push('Alex-Blumentals');
+            
+            // Additional assignees based on expertise areas
+            // (Add team members as the team grows)
+            
+            if (assignees.length > 0) {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                assignees: assignees
+              });
+              
+              console.log(`Assigned to: ${assignees.join(', ')}`);
+            }
+
+  emergency-notification:
+    name: Emergency Issue Notification
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, '[EMERGENCY]') || contains(github.event.issue.title, '🚨')
+    
+    steps:
+      - name: Create emergency comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const emergencyComment = `
+            ## 🚨 EMERGENCY ISSUE DETECTED 🚨
+            
+            This issue has been flagged as an emergency. The following actions have been automatically triggered:
+            
+            ✅ **Immediate Actions:**
+            - Issue labeled with \`emergency\`, \`critical\`, and \`production\`
+            - Assigned to project maintainer
+            - Priority set to highest level
+            
+            📞 **Next Steps:**
+            1. **Team Lead**: Review and triage immediately
+            2. **Team Members**: Check Slack/communication channels for alerts
+            3. **Reporter**: Stay available for real-time collaboration
+            
+            ⏱️ **Response SLA:** Emergency issues should receive initial response within 30 minutes during business hours, or 2 hours outside business hours.
+            
+            📋 **Emergency Response Checklist:**
+            - [ ] Initial impact assessment completed
+            - [ ] Team notified via emergency channels
+            - [ ] Severity confirmed and documented
+            - [ ] Initial troubleshooting started
+            - [ ] Stakeholders alerted (if needed)
+            
+            ---
+            
+            *This comment was automatically generated by the issue automation workflow.*
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: emergencyComment
+            });
+            
+            // Add emergency labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['emergency', 'critical', 'priority: critical', 'needs-immediate-attention']
+            });
+
+  deployment-approval:
+    name: Deployment Request Processing
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, '[DEPLOY]') || contains(github.event.issue.title, '🚀')
+    
+    steps:
+      - name: Process deployment request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentComment = `
+            ## 🚀 Deployment Request Received
+            
+            This deployment request has been automatically processed:
+            
+            ✅ **Automated Actions:**
+            - Labeled with \`deployment\` and \`ops\`
+            - Added to deployment review queue
+            - Assigned to deployment team
+            
+            📋 **Review Process:**
+            1. **Technical Review**: Verify all prerequisites are met
+            2. **Risk Assessment**: Evaluate potential impact and rollback plans
+            3. **Approval**: Get required approvals based on target environment
+            4. **Scheduling**: Coordinate deployment timing
+            5. **Execution**: Perform deployment with monitoring
+            
+            ⏱️ **Expected Response Times:**
+            - **Emergency/Hotfix**: 2-4 hours
+            - **High Priority**: 24 hours
+            - **Normal Priority**: 2-3 business days
+            - **Low Priority**: Next sprint planning
+            
+            📞 **Need Faster Response?**
+            If this is urgent, please:
+            - Update the urgency level in the issue
+            - Contact the team via Slack
+            - Consider if this should be an emergency hotfix instead
+            
+            ---
+            
+            *Deployment automation will begin once approved by the required reviewers.*
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: deploymentComment
+            });
+            
+            // Add deployment-specific labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['deployment', 'ops', 'needs-approval', 'review-required']
+            });
+
+  stale-issue-management:
+    name: Stale Issue Management
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Add initial response comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueType = context.payload.issue.title.includes('[BUG]') ? 'bug report' :
+                             context.payload.issue.title.includes('[FEATURE]') ? 'feature request' :
+                             context.payload.issue.title.includes('[QUESTION]') ? 'question' :
+                             context.payload.issue.title.includes('[DEPLOY]') ? 'deployment request' :
+                             'issue';
+            
+            const responseComment = `
+            Thank you for submitting this ${issueType}! 
+            
+            📋 **What happens next:**
+            - Your issue has been automatically labeled and assigned
+            - A team member will review and respond according to our SLA
+            - You'll receive updates as we investigate and work on this
+            
+            ⏱️ **Expected Response Times:**
+            - **Emergency Issues**: 30 minutes - 2 hours
+            - **Bug Reports**: 24-48 hours
+            - **Feature Requests**: 2-5 business days
+            - **Questions/Support**: 24 hours
+            - **Deployment Requests**: Based on urgency level
+            
+            💡 **In the meantime:**
+            - Feel free to add any additional information that might help
+            - Check our [documentation](https://github.com/Alex-Blumentals/alex-project/blob/main/README.md) for related information
+            - Join our [discussions](https://github.com/Alex-Blumentals/alex-project/discussions) for community support
+            
+            We appreciate your contribution to making this project better! 🙌
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: responseComment
+            });
+
+  update-project-board:
+    name: Update Project Board
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    
+    steps:
+      - name: Add issue to project board
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This would integrate with GitHub Projects if set up
+            // For now, just log that we would add to project board
+            console.log(`Issue #${context.payload.issue.number} would be added to project board`);
+            
+            // Example of how to add to project board:
+            // const projectId = 'PROJECT_ID';
+            // const columnId = 'COLUMN_ID';
+            // 
+            // await github.rest.projects.createCard({
+            //   column_id: columnId,
+            //   content_id: context.payload.issue.id,
+            //   content_type: 'Issue'
+            // });

@@ -1,0 +1,244 @@
+# GitHub Repository Labels Configuration
+# This file defines the standard labels for the repository
+# Use with github-label-sync or similar tools to maintain consistent labeling
+
+# Issue Types
+- name: "bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+
+- name: "invalid"
+  color: "e4e669"
+  description: "This doesn't seem right"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+# Priority Labels
+- name: "priority: critical"
+  color: "b60205"
+  description: "Highest priority - needs immediate attention"
+
+- name: "priority: high"
+  color: "d93f0b"
+  description: "High priority - should be addressed soon"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Medium priority - normal timeline"
+
+- name: "priority: low"
+  color: "0e8a16"
+  description: "Low priority - can be scheduled later"
+
+# Severity Labels (for bugs)
+- name: "severity: critical"
+  color: "b60205"
+  description: "Critical severity - system down or data loss"
+
+- name: "severity: major"
+  color: "d93f0b"
+  description: "Major severity - significant functionality broken"
+
+- name: "severity: minor"
+  color: "fbca04"
+  description: "Minor severity - small functionality issue"
+
+- name: "severity: trivial"
+  color: "0e8a16"
+  description: "Trivial severity - cosmetic or very minor issue"
+
+# Component Labels
+- name: "webflow"
+  color: "4052ff"
+  description: "Related to Webflow integration or frontend"
+
+- name: "xano"
+  color: "ff6b35"
+  description: "Related to Xano backend or API"
+
+- name: "backend"
+  color: "8b5a2b"
+  description: "Backend functionality or API related"
+
+- name: "frontend"
+  color: "1f77b4"
+  description: "Frontend or UI related"
+
+- name: "github-actions"
+  color: "2088ff"
+  description: "Related to GitHub Actions or CI/CD"
+
+- name: "ci-cd"
+  color: "6f42c1"
+  description: "Continuous integration or deployment"
+
+- name: "security"
+  color: "d73a4a"
+  description: "Security related issue or enhancement"
+
+- name: "performance"
+  color: "ff6347"
+  description: "Performance related issue or optimization"
+
+- name: "configuration"
+  color: "5319e7"
+  description: "Configuration or environment setup related"
+
+- name: "authentication"
+  color: "d4af37"
+  description: "Authentication or authorization related"
+
+- name: "database"
+  color: "4caf50"
+  description: "Database or data storage related"
+
+# Environment Labels
+- name: "env: production"
+  color: "b60205"
+  description: "Affects production environment"
+
+- name: "env: staging"
+  color: "fbca04"
+  description: "Affects staging environment"
+
+- name: "env: development"
+  color: "0e8a16"
+  description: "Affects development environment"
+
+# Status Labels
+- name: "needs-triage"
+  color: "ededed"
+  description: "Needs initial review and categorization"
+
+- name: "needs-investigation"
+  color: "fef2c0"
+  description: "Requires further investigation"
+
+- name: "needs-reproduction"
+  color: "ffd8b1"
+  description: "Bug report needs to be reproduced"
+
+- name: "needs-approval"
+  color: "c5def5"
+  description: "Waiting for approval from stakeholders"
+
+- name: "review-required"
+  color: "b4a7d6"
+  description: "Requires code or design review"
+
+- name: "blocked"
+  color: "d73a4a"
+  description: "Blocked by external dependency or issue"
+
+- name: "ready-for-work"
+  color: "0e8a16"
+  description: "Ready to be worked on"
+
+- name: "in-progress"
+  color: "1d76db"
+  description: "Currently being worked on"
+
+- name: "ready-for-testing"
+  color: "0366d6"
+  description: "Ready for testing or QA review"
+
+- name: "ready-for-deployment"
+  color: "28a745"
+  description: "Ready to be deployed"
+
+# Special Labels
+- name: "emergency"
+  color: "b60205"
+  description: "Emergency issue requiring immediate attention"
+
+- name: "hotfix"
+  color: "d93f0b"
+  description: "Critical fix that needs fast-track deployment"
+
+- name: "deployment"
+  color: "0052cc"
+  description: "Related to deployment or release"
+
+- name: "ops"
+  color: "5319e7"
+  description: "Operations or infrastructure related"
+
+- name: "breaking-change"
+  color: "d73a4a"
+  description: "Introduces breaking changes to API or functionality"
+
+- name: "good-first-issue"
+  color: "7057ff"
+  description: "Good for newcomers to the project"
+
+- name: "help-wanted"
+  color: "008672"
+  description: "Extra attention is needed - community help welcome"
+
+- name: "support"
+  color: "d876e3"
+  description: "User support or help request"
+
+- name: "automated"
+  color: "ededed"
+  description: "Created or managed by automated systems"
+
+- name: "needs-immediate-attention"
+  color: "b60205"
+  description: "Requires immediate attention from team"
+
+# Effort/Size Labels
+- name: "effort: xs"
+  color: "c2e0c6"
+  description: "Extra small effort - 1-2 hours"
+
+- name: "effort: small"
+  color: "bfd4f2"
+  description: "Small effort - 1-2 days"
+
+- name: "effort: medium"
+  color: "ffd8b1"
+  description: "Medium effort - 3-5 days"
+
+- name: "effort: large"
+  color: "ffc9c9"
+  description: "Large effort - 1-2 weeks"
+
+- name: "effort: xl"
+  color: "f9d0c4"
+  description: "Extra large effort - multiple weeks"
+
+# Epic/Feature Labels
+- name: "epic"
+  color: "3f51b5"
+  description: "Large feature or project that spans multiple issues"
+
+- name: "spike"
+  color: "ff9800"
+  description: "Research or investigation task"
+
+- name: "technical-debt"
+  color: "795548"
+  description: "Technical debt that should be addressed"
+
+- name: "refactoring"
+  color: "607d8b"
+  description: "Code refactoring without functional changes"
